@@ -20,36 +20,6 @@ A stock market analysis platform that helps you invest in the stock market by pr
 ```bash
 pip install -r requirements.txt
 ```
-
-2. Run the Flask server:
-```bash
-cd server
-python app.py
-```
-
-3. Open `client/pages/homepage.html` in your browser
-
-## Project Structure
-
-```
-investorRadar/
-├── client/
-│   ├── pages/
-│   │   └── homepage.html
-│   └── styling/
-│       └── style.css
-├── server/
-│   ├── app.py          # Flask API server
-│   └── stockScreener.py # Stock data retrieval
-├── requirements.txt
-└── README.md
-```
-
-## API Endpoints
-
-- `GET /api/stock?ticker=<TICKER>` - Get stock data for a given ticker
-- `GET /api/health` - Health check endpoint
-
 ## License
 
 MIT
