@@ -1,6 +1,6 @@
 # InvestorRadar
 
-A stock market analysis platform that helps you invest in the stock market by providing real-time stock data and screening capabilities.
+A stock market analysis platform that helps you invest in the stock market by providing real-time stock data and screening capabilities. Provides stock news and advanced analysis, as well as portfolio analysis and recommendations.
 
 ## Features
 
