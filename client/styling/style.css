@@ -22,8 +22,10 @@
     margin-bottom: 1rem;
 }
 
+
+
 input{
-    width: 200px;
+    width: 175px;
     height: 30px;
     border-radius: 5px;
     border: 1px solid #ccc;
