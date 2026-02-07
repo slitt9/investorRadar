@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify
+from datetime import datetime, timedelta
+import random
 from tradingview_screener import Query, col
 from flask_sqlalchemy import SQLAlchemy
 from flask_restful import Api, Resource, reqparse, fields, marshal_with, abort
@@ -82,9 +84,81 @@ class StockResource(Resource):
                 return stock.to_dict()
             abort(500, message=f"Error saving stock: {str(e)}")
 
+class StockHistoryResource(Resource):
+    def get(self, ticker):
+        period = request.args.get('period', '1d')
+        
+        stock = Stock.query.filter_by(ticker=ticker.upper()).first()
+        if not stock:
+            stock_data = get_stock_from_tradingview(ticker.upper())
+            if not stock_data:
+                abort(404, message=f"Stock ticker '{ticker}' not found")
+            stock = Stock(
+                ticker=stock_data['ticker'],
+                name=stock_data['name'],
+                close=stock_data['close'],
+                volume=stock_data['volume'],
+                market_cap_basic=stock_data['market_cap_basic']
+            )
+            db.session.add(stock)
+            db.session.commit()
+        
+        current_price = stock.close
+        historical_data = generate_historical_data(current_price, period)
+        
+        return {
+            'ticker': ticker.upper(),
+            'period': period,
+            'data': historical_data
+        }
+
+def generate_historical_data(current_price, period):
+    
+    data_points = {
+        '1d': 24,
+        '1w': 7,
+        '3m': 90,
+        '1y': 365
+    }
+    
+    points = data_points.get(period, 30)
+    data = []
+    base_price = current_price * (0.85 + random.random() * 0.3)
+    
+    for i in range(points):
+        days_ago = points - i
+        date = datetime.now() - timedelta(days=days_ago)
+        
+        variation = random.uniform(-0.02, 0.02)
+        if i > 0:
+            base_price = data[-1]['close'] * (1 + variation)
+        else:
+            base_price = current_price * (0.85 + random.random() * 0.3)
+        
+        data.append({
+            'date': date.isoformat(),
+            'close': round(base_price, 2),
+            'open': round(base_price * (1 + random.uniform(-0.01, 0.01)), 2),
+            'high': round(base_price * (1 + random.uniform(0, 0.03)), 2),
+            'low': round(base_price * (1 - random.uniform(0, 0.03)), 2),
+            'volume': random.randint(1000000, 10000000)
+        })
+    
+    data.append({
+        'date': datetime.now().isoformat(),
+        'close': round(current_price, 2),
+        'open': round(current_price * (1 + random.uniform(-0.01, 0.01)), 2),
+        'high': round(current_price * (1 + random.uniform(0, 0.02)), 2),
+        'low': round(current_price * (1 - random.uniform(0, 0.02)), 2),
+        'volume': random.randint(1000000, 10000000)
+    })
+    
+    return data
+
 PortfolioListResource, PortfolioResource, PortfolioStockListResource, PortfolioStockResource = create_portfolio_routes(db, Portfolio, Stock, PortfolioStock)
 
 api.add_resource(StockResource, '/api/stock/<string:ticker>')
+api.add_resource(StockHistoryResource, '/api/stock/<string:ticker>/history')
 api.add_resource(PortfolioListResource, '/api/portfolios')
 api.add_resource(PortfolioResource, '/api/portfolios/<int:portfolio_id>')
 api.add_resource(PortfolioStockListResource, '/api/portfolios/<int:portfolio_id>/stocks')
