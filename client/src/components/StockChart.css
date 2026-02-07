@@ -27,12 +27,13 @@
 }
 
 .ticker {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #1a1a1a;
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 6px;
   font-weight: 600;
   font-size: 1.1rem;
+  letter-spacing: 0.5px;
 }
 
 .stock-metrics {
@@ -109,14 +110,14 @@
 }
 
 .period-button:hover {
-  border-color: #667eea;
-  color: #667eea;
+  border-color: #1a1a1a;
+  color: #1a1a1a;
 }
 
 .period-button.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #1a1a1a;
   color: white;
-  border-color: transparent;
+  border-color: #1a1a1a;
 }
 
 .loading, .error, .no-data {

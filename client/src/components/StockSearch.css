@@ -26,18 +26,18 @@
 .search-button {
   padding: 1rem 2rem;
   font-size: 1.1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #1a1a1a;
   color: white;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
-  transition: transform 0.2s, box-shadow 0.2s;
+  font-weight: 500;
+  transition: background-color 0.2s, transform 0.2s;
 }
 
 .search-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  background: #2a2a2a;
+  transform: translateY(-1px);
 }
 
 .search-button:disabled {

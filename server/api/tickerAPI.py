@@ -51,6 +51,37 @@ def get_stock_from_tradingview(ticker_name):
         }
     except Exception as e:
         print(f"Error fetching from TradingView: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def search_stock_by_ticker(ticker):
+    try:
+        result = (Query()
+            .select('name', 'close', 'volume', 'market_cap_basic')
+            .limit(50000)
+            .get_scanner_data())
+        
+        count, df = result
+        if count == 0 or df.empty:
+            return None
+        
+        ticker_upper = ticker.upper()
+        for idx, row in df.iterrows():
+            stock_name = str(row.get('name', '')).upper().strip()
+            if stock_name == ticker_upper:
+                return {
+                    'ticker': ticker_upper,
+                    'name': row['name'],
+                    'close': float(row['close']) if pd.notna(row['close']) else None,
+                    'volume': int(row['volume']) if pd.notna(row['volume']) else None,
+                    'market_cap_basic': int(row['market_cap_basic']) if pd.notna(row['market_cap_basic']) else None
+                }
+        return None
+    except Exception as e:
+        print(f"Error searching stock: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 class StockResource(Resource):
@@ -60,7 +91,36 @@ class StockResource(Resource):
         if stock:
             return stock.to_dict()
         
-        stock_data = get_stock_from_tradingview(ticker.upper())
+        stock_data = search_stock_by_ticker(ticker.upper())
+        
+        if not stock_data:
+            stock_data = get_stock_from_tradingview(ticker.upper())
+        
+        if not stock_data:
+            print(f"Attempting fallback search for ticker: {ticker}")
+            try:
+                result = (Query()
+                    .select('name', 'close', 'volume', 'market_cap_basic')
+                    .limit(10000)
+                    .get_scanner_data())
+                
+                count, df = result
+                ticker_upper = ticker.upper()
+                
+                if not df.empty:
+                    for idx, row in df.iterrows():
+                        stock_name = str(row.get('name', '')).upper()
+                        if stock_name == ticker_upper:
+                            stock_data = {
+                                'ticker': ticker_upper,
+                                'name': row['name'],
+                                'close': float(row['close']) if pd.notna(row['close']) else None,
+                                'volume': int(row['volume']) if pd.notna(row['volume']) else None,
+                                'market_cap_basic': int(row['market_cap_basic']) if pd.notna(row['market_cap_basic']) else None
+                            }
+                            break
+            except Exception as e:
+                print(f"Fallback search error: {e}")
         
         if not stock_data:
             abort(404, message=f"Stock ticker '{ticker}' not found")

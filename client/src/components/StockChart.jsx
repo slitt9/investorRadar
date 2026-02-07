@@ -137,10 +137,10 @@ function StockChart({ ticker, stockData }) {
               <Line 
                 type="monotone" 
                 dataKey="price" 
-                stroke="#667eea" 
-                strokeWidth={2}
-                dot={{ fill: '#667eea', r: 4 }}
-                activeDot={{ r: 6 }}
+                stroke="#1a1a1a" 
+                strokeWidth={2.5}
+                dot={{ fill: '#1a1a1a', r: 3 }}
+                activeDot={{ r: 6, fill: '#1a1a1a' }}
               />
             </LineChart>
           </ResponsiveContainer>
