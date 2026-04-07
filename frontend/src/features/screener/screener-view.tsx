@@ -74,7 +74,8 @@ export function ScreenerView() {
               <div className="mt-1 text-xs text-muted">
                 Start the Flask API on <span className="text-foreground">http://localhost:5000</span>{" "}
                 (run <span className="text-foreground">python backend/app.py</span>) or set{" "}
-                <span className="text-foreground">NEXT_PUBLIC_API_BASE_URL</span>.
+                <span className="text-foreground">NEXT_PUBLIC_API_BASE_URL</span> (Vercel Services will also inject{" "}
+                <span className="text-foreground">NEXT_PUBLIC_BACKEND_URL</span> automatically).
               </div>
             </div>
           )}
