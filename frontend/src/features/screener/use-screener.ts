@@ -16,7 +16,7 @@ async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
     volume_max: filters.volume[1],
     price_min: filters.price[0],
     price_max: filters.price[1],
-    limit: 250,
+    limit: 60,
   });
 }
 

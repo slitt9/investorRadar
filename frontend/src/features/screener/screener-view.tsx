@@ -77,6 +77,17 @@ export function ScreenerView() {
                 <span className="text-foreground">NEXT_PUBLIC_API_BASE_URL</span> (Vercel Services will also inject{" "}
                 <span className="text-foreground">NEXT_PUBLIC_BACKEND_URL</span> automatically).
               </div>
+              <div className="mt-2 text-xs text-muted">
+                If you’re using Render Free, the service may be waking up (30–60s). Then hit Retry.
+              </div>
+              <div className="mt-3">
+                <button
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] px-3 text-xs font-semibold text-foreground transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+                  onClick={() => results.refetch()}
+                >
+                  Retry
+                </button>
+              </div>
             </div>
           )}
           <ResultsTable

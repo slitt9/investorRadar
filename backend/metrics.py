@@ -7,6 +7,7 @@ from SEC EDGAR to calculate metrics without any paid API keys.
 import yfinance as yf
 import pandas as pd
 from sec_engine import get_cik_for_ticker, get_sec_facts, extract_latest_sec_fact
+from sec_engine import get_sec_tickers_list
 from cache import cached
 
 
@@ -77,7 +78,7 @@ def compute_radar_pulse(metrics):
 
 
 @cached(ttl=120)
-def calculate_metrics(ticker):
+def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
     """Calculates all financial metrics for a given ticker locally."""
     metrics = {
         "ticker": ticker.upper(),
@@ -111,7 +112,7 @@ def calculate_metrics(ticker):
     # --- Phase 1: Live price from Yahoo Finance ---
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d")
+        hist = stock.history(period="5d" if include_quarterly or include_sec else "2d")
         if not hist.empty and len(hist) >= 2:
             close = float(hist["Close"].iloc[-1])
             prev = float(hist["Close"].iloc[-2])
@@ -137,56 +138,75 @@ def calculate_metrics(ticker):
         metrics["fifty_two_week_low"] = info.get("fiftyTwoWeekLow")
         metrics["company_name"] = info.get("shortName", info.get("longName", "N/A"))
 
-        # Grab quarterly income statement for growth metrics
-        q_stmt = stock.quarterly_income_stmt
-        if not q_stmt.empty:
-            if "Total Revenue" in q_stmt.index:
-                revs = q_stmt.loc["Total Revenue"].dropna()
-                if len(revs) >= 2:
-                    current_rev = float(revs.iloc[0])
-                    prev_rev = float(revs.iloc[1])
-                    if prev_rev and prev_rev != 0:
-                        growth = ((current_rev - prev_rev) / abs(prev_rev)) * 100
-                        metrics["quarterly_revenue_growth"] = round(growth, 2)
-            
-            if "Operating Expense" in q_stmt.index:
-                exp = q_stmt.loc["Operating Expense"].dropna()
-                if len(exp) >= 1:
-                    metrics["quarterly_operating_expenses"] = float(exp.iloc[0])
+        if not include_sec:
+            # Fast-path derived values from yfinance info (avoids SEC calls).
+            market_cap = info.get("marketCap")
+            pe = info.get("trailingPE") or info.get("forwardPE")
+            if market_cap is not None:
+                metrics["market_cap"] = float(market_cap)
+            if pe is not None:
+                metrics["pe_ratio"] = float(pe)
+
+        if include_quarterly:
+            # Grab quarterly income statement for growth metrics
+            q_stmt = stock.quarterly_income_stmt
+            if not q_stmt.empty:
+                if "Total Revenue" in q_stmt.index:
+                    revs = q_stmt.loc["Total Revenue"].dropna()
+                    if len(revs) >= 2:
+                        current_rev = float(revs.iloc[0])
+                        prev_rev = float(revs.iloc[1])
+                        if prev_rev and prev_rev != 0:
+                            growth = ((current_rev - prev_rev) / abs(prev_rev)) * 100
+                            metrics["quarterly_revenue_growth"] = round(growth, 2)
+
+                if "Operating Expense" in q_stmt.index:
+                    exp = q_stmt.loc["Operating Expense"].dropna()
+                    if len(exp) >= 1:
+                        metrics["quarterly_operating_expenses"] = float(exp.iloc[0])
 
     except Exception:
         pass
 
     # --- Phase 2: SEC Fundamentals ---
-    cik = get_cik_for_ticker(ticker)
-    if cik:
-        facts = get_sec_facts(cik)
-        if facts:
-            eps = extract_latest_sec_fact(facts, "EarningsPerShareDiluted", unit="USD/shares")
-            if eps is None:
-                eps = extract_latest_sec_fact(facts, "EarningsPerShareBasic", unit="USD/shares")
+    if include_sec:
+        cik = get_cik_for_ticker(ticker)
+        if cik:
+            facts = get_sec_facts(cik)
+            if facts:
+                eps = extract_latest_sec_fact(
+                    facts, "EarningsPerShareDiluted", unit="USD/shares"
+                )
+                if eps is None:
+                    eps = extract_latest_sec_fact(
+                        facts, "EarningsPerShareBasic", unit="USD/shares"
+                    )
 
-            shares = extract_latest_sec_fact(facts, "EntityCommonStockSharesOutstanding", unit="shares")
-            if shares is None:
-                shares = extract_latest_sec_fact(facts, "CommonStockSharesOutstanding", unit="shares")
+                shares = extract_latest_sec_fact(
+                    facts, "EntityCommonStockSharesOutstanding", unit="shares"
+                )
+                if shares is None:
+                    shares = extract_latest_sec_fact(
+                        facts, "CommonStockSharesOutstanding", unit="shares"
+                    )
 
-            assets = extract_latest_sec_fact(facts, "Assets", unit="USD")
-            liabilities = extract_latest_sec_fact(facts, "Liabilities", unit="USD")
+                assets = extract_latest_sec_fact(facts, "Assets", unit="USD")
+                liabilities = extract_latest_sec_fact(facts, "Liabilities", unit="USD")
 
-            metrics["eps"] = eps
-            metrics["shares_outstanding"] = shares
-            metrics["assets"] = assets
-            metrics["liabilities"] = liabilities
+                metrics["eps"] = eps
+                metrics["shares_outstanding"] = shares
+                metrics["assets"] = assets
+                metrics["liabilities"] = liabilities
 
-            if assets and liabilities:
-                metrics["equity"] = assets - liabilities
+                if assets and liabilities:
+                    metrics["equity"] = assets - liabilities
 
-    # --- Phase 3: Derived calculations ---
-    if metrics["price"] is not None:
-        if eps and eps > 0:
-            metrics["pe_ratio"] = round(metrics["price"] / eps, 2)
-        if shares and shares > 0:
-            metrics["market_cap"] = round(metrics["price"] * shares, 0)
+                # --- Phase 3: Derived calculations ---
+                if metrics["price"] is not None:
+                    if eps and eps > 0:
+                        metrics["pe_ratio"] = round(metrics["price"] / eps, 2)
+                    if shares and shares > 0:
+                        metrics["market_cap"] = round(metrics["price"] * shares, 0)
 
     metrics["radar_pulse"] = compute_radar_pulse(metrics)
     return metrics
@@ -214,62 +234,99 @@ def get_screener_results(
     - Uses calculate_metrics() per ticker (cached).
     - Intentionally bounded by a universe list (tickers param) to keep latency reasonable.
     """
+    # This endpoint is the hottest path in the app. On low-memory hosts (Render Free),
+    # `Ticker.info` + SEC calls across many tickers can cause timeouts/502s.
+    # We intentionally use a single yfinance batch download here for price/volume/change,
+    # and keep fundamentals for the per-ticker /api/quote endpoint.
+
+    tickers = tickers[: max(0, int(limit))]
+    if not tickers:
+        return []
+
     rows = []
 
     def ok_range(v, min_v, max_v):
         if v is None:
-            return False
+            return True  # treat missing as "pass" for screener snapshot
         if min_v is not None and v < min_v:
             return False
         if max_v is not None and v > max_v:
             return False
         return True
 
-    for t in tickers[: max(0, int(limit))]:
-        m = calculate_metrics(t)
-        if m.get("price") is None:
-            continue
+    # Map ticker -> company name from SEC list (cached daily).
+    name_map = {}
+    try:
+        sec_list = get_sec_tickers_list()
+        name_map = {x["ticker"]: x.get("name", "") for x in sec_list}
+    except Exception:
+        name_map = {}
 
-        if sector and sector != "All":
-            if (m.get("sector") or "N/A") != sector:
-                continue
-
-        if dividends_only and not (m.get("dividend_yield") or 0):
-            continue
-
-        if market_cap_min is not None or market_cap_max is not None:
-            if not ok_range(m.get("market_cap"), market_cap_min, market_cap_max):
-                continue
-
-        if pe_min is not None or pe_max is not None:
-            if not ok_range(m.get("pe_ratio"), pe_min, pe_max):
-                continue
-
-        if volume_min is not None or volume_max is not None:
-            if not ok_range(m.get("volume"), volume_min, volume_max):
-                continue
-
-        if price_min is not None or price_max is not None:
-            if not ok_range(m.get("price"), price_min, price_max):
-                continue
-
-        rows.append(
-            {
-                "ticker": m.get("ticker"),
-                "company_name": m.get("company_name") or "N/A",
-                "price": m.get("price"),
-                "pct_change": m.get("pct_change"),
-                "volume": m.get("volume"),
-                "market_cap": m.get("market_cap"),
-                "pe_ratio": m.get("pe_ratio"),
-                "sector": m.get("sector") or "N/A",
-                "industry": m.get("industry") or "N/A",
-                "dividend_yield": m.get("dividend_yield"),
-                "fifty_two_week_high": m.get("fifty_two_week_high"),
-                "fifty_two_week_low": m.get("fifty_two_week_low"),
-                "radar_pulse": m.get("radar_pulse"),
-            }
+    try:
+        df = yf.download(
+            " ".join(tickers),
+            period="2d",
+            group_by="ticker",
+            threads=True,
+            progress=False,
         )
+    except Exception:
+        return []
+
+    multi = getattr(df.columns, "nlevels", 1) > 1
+
+    for t in tickers:
+        try:
+            sub = df[t] if multi and t in df.columns.get_level_values(0) else df
+            if sub is None or sub.empty or len(sub) < 2:
+                continue
+
+            close = float(sub["Close"].iloc[-1])
+            prev = float(sub["Close"].iloc[-2])
+            if prev == 0:
+                continue
+            pct = ((close - prev) / prev) * 100.0
+            vol = int(sub["Volume"].iloc[-1]) if "Volume" in sub.columns else None
+
+            if volume_min is not None or volume_max is not None:
+                if not ok_range(vol, volume_min, volume_max):
+                    continue
+
+            if price_min is not None or price_max is not None:
+                if not ok_range(close, price_min, price_max):
+                    continue
+
+            # Fundamentals are handled in /api/quote. Keep placeholders here.
+            market_cap = None
+            pe_ratio = None
+
+            if market_cap_min is not None or market_cap_max is not None:
+                if not ok_range(market_cap, market_cap_min, market_cap_max):
+                    continue
+
+            if pe_min is not None or pe_max is not None:
+                if not ok_range(pe_ratio, pe_min, pe_max):
+                    continue
+
+            rows.append(
+                {
+                    "ticker": t,
+                    "company_name": name_map.get(t) or t,
+                    "price": round(close, 2),
+                    "pct_change": round(pct, 2),
+                    "volume": vol,
+                    "market_cap": market_cap,
+                    "pe_ratio": pe_ratio,
+                    "sector": "N/A",
+                    "industry": "N/A",
+                    "dividend_yield": None,
+                    "fifty_two_week_high": None,
+                    "fifty_two_week_low": None,
+                    "radar_pulse": None,
+                }
+            )
+        except Exception:
+            continue
 
     return rows
 
