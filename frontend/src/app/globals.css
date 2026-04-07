@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+
+  --bg: 11 14 17; /* #0B0E11 */
+  --fg: 229 231 235; /* #E5E7EB */
+
+  --surface-1: 17 24 39; /* #111827 */
+  --surface-2: 31 41 55; /* #1F2937 */
+
+  --border: 55 65 81; /* #374151 */
+  --muted: 156 163 175; /* #9CA3AF */
+
+  --emerald: 16 185 129; /* emerald-500 */
+  --rose: 244 63 94; /* rose-500 */
+
+  --blue: 96 165 250; /* blue-400 */
+  --purple: 168 85 247; /* purple-500 */
+
+  --radius: 14px;
+}
+
+@theme inline {
+  --color-background: rgb(var(--bg));
+  --color-foreground: rgb(var(--fg));
+  --color-surface: rgb(var(--surface-1));
+  --color-surface-2: rgb(var(--surface-2));
+  --color-border: rgb(var(--border));
+  --color-muted: rgb(var(--muted));
+  --color-emerald: rgb(var(--emerald));
+  --color-rose: rgb(var(--rose));
+  --color-blue: rgb(var(--blue));
+  --color-purple: rgb(var(--purple));
+
+  --radius: var(--radius);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  outline-color: rgb(var(--blue) / 0.6);
+}
+
+::selection {
+  background: rgb(var(--blue) / 0.25);
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
