@@ -5,6 +5,7 @@ All data is sourced from SEC EDGAR + yfinance. Zero paid API keys required.
 """
 
 import os
+import sys
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from metrics import (
@@ -18,7 +19,7 @@ from metrics import (
     get_news,
     get_screener_results,
 )
-from sec_engine import get_sec_tickers_list
+from sec_engine import get_sec_tickers_list, get_sp500_constituents
 
 app = Flask(__name__)
 CORS(app)
@@ -61,11 +62,12 @@ def screener():
     """Returns screener rows for a bounded universe.
 
     Query params:
+      - universe: "sp500" | "popular" (default: sp500)
       - q: optional search string (ticker or name) to restrict results
       - sector: sector filter, "All" to ignore
       - dividends_only: "1" | "true"
       - market_cap_min/max, pe_min/max, volume_min/max, price_min/max
-      - limit: max rows evaluated/returned (default 250)
+      - limit: max rows returned (default 250)
     """
 
     def f(name):
@@ -77,20 +79,32 @@ def screener():
         except ValueError:
             return None
 
+    universe = request.args.get("universe", "sp500").strip().lower()
     q = request.args.get("q", "").strip().upper()
     sector = request.args.get("sector", "All").strip()
     dividends_only = request.args.get("dividends_only", "").strip().lower() in ("1", "true", "yes")
     limit = int(request.args.get("limit", "250"))
 
-    # Keep the universe intentionally bounded. For broader coverage, extend this list server-side.
-    scan_list = (
-        "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "GOOGL", "AMZN", "META",
-        "NFLX", "JPM", "V", "WMT", "DIS", "INTC", "BA", "PYPL",
-        "CRM", "UBER", "COIN", "PLTR", "AVGO", "ORCL", "ADBE", "QCOM",
-        "TXN", "MU", "CSCO", "SHOP", "SNOW", "PANW", "CRWD", "NOW",
-        "XOM", "CVX", "COP", "PFE", "JNJ", "MRK", "UNH", "ABBV",
-        "GS", "MS", "BAC", "C", "MA", "AXP", "KO", "PEP",
-    )
+    if universe == "sp500":
+        constituents = get_sp500_constituents()
+        if q:
+            constituents = [
+                c
+                for c in constituents
+                if q in (c.get("ticker") or "").upper()
+                or q in (c.get("company_name") or "").upper()
+            ]
+        scan_list = tuple(c["ticker"] for c in constituents)
+    else:
+        # Keep a fallback "popular" universe for low-latency demos.
+        scan_list = (
+            "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "GOOGL", "AMZN", "META",
+            "NFLX", "JPM", "V", "WMT", "DIS", "INTC", "BA", "PYPL",
+            "CRM", "UBER", "COIN", "PLTR", "AVGO", "ORCL", "ADBE", "QCOM",
+            "TXN", "MU", "CSCO", "SHOP", "SNOW", "PANW", "CRWD", "NOW",
+            "XOM", "CVX", "COP", "PFE", "JNJ", "MRK", "UNH", "ABBV",
+            "GS", "MS", "BAC", "C", "MA", "AXP", "KO", "PEP",
+        )
 
     rows = get_screener_results(
         tickers=scan_list,
@@ -105,9 +119,11 @@ def screener():
         sector=sector,
         dividends_only=dividends_only,
         limit=limit,
+        meta_source="sp500" if universe == "sp500" else None,
     )
 
-    if q:
+    # If we didn't pre-filter tickers (non-sp500 universes), apply an in-memory refine.
+    if q and universe != "sp500":
         # Allow quick search refine without new endpoints.
         rows = [
             r
@@ -169,4 +185,9 @@ def news(ticker):
 if __name__ == "__main__":
     print("InvestorRadar API starting on http://localhost:5000")
     port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", debug=True, port=port)
+    # Werkzeug's file watcher + reloader can hit WinError 10038 on Windows (bad socket in select()).
+    # Opt back in with FLASK_USE_RELOADER=1 if you accept occasional reloader crashes.
+    use_reloader = True
+    if sys.platform == "win32":
+        use_reloader = os.environ.get("FLASK_USE_RELOADER", "").lower() in ("1", "true", "yes")
+    app.run(host="0.0.0.0", debug=True, port=port, use_reloader=use_reloader)

@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronLeft, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -89,6 +90,25 @@ export function FiltersPanel({
                 <div className="grid gap-5">
                   <div>
                     <div className="text-xs font-semibold tracking-wide text-muted">
+                      Search
+                    </div>
+                    <div className="mt-2">
+                      <Input
+                        value={value.query}
+                        onChange={(e) =>
+                          onChange({ ...value, query: e.target.value })
+                        }
+                        placeholder="Ticker or company (e.g., AAPL, Tesla)"
+                        aria-label="Search ticker or company"
+                      />
+                    </div>
+                    <div className="mt-2 text-xs text-muted">
+                      Tip: refine results without expanding the universe.
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold tracking-wide text-muted">
                       Sector
                     </div>
                     <div className="mt-2">
@@ -112,6 +132,7 @@ export function FiltersPanel({
                           <SelectItem value="Energy">Energy</SelectItem>
                           <SelectItem value="Consumer">Consumer</SelectItem>
                           <SelectItem value="Industrials">Industrials</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -140,7 +161,7 @@ export function FiltersPanel({
                           })
                         }
                       />
-                      <RangeLabel left="0" right="2T" />
+                      <RangeLabel left="0" right="2T+" />
                     </div>
                   </div>
 
@@ -190,7 +211,7 @@ export function FiltersPanel({
                           })
                         }
                       />
-                      <RangeLabel left="0" right="100M" />
+                      <RangeLabel left="0" right="100M+" />
                     </div>
                   </div>
 
@@ -219,7 +240,7 @@ export function FiltersPanel({
                           onChange({ ...value, price: price as [number, number] })
                         }
                       />
-                      <RangeLabel left="$0" right="$600" />
+                      <RangeLabel left="$0" right="$600+" />
                     </div>
                   </div>
 
@@ -234,7 +255,7 @@ export function FiltersPanel({
                     Reset
                   </Button>
                   <Button variant="primary" onClick={onApply}>
-                    Apply Filters
+                    Run Scan
                   </Button>
                 </div>
               </div>

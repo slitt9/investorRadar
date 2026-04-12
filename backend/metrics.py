@@ -4,11 +4,18 @@ Combines live price data from yfinance with fundamental data
 from SEC EDGAR to calculate metrics without any paid API keys.
 """
 
+import time
+
 import yfinance as yf
 import pandas as pd
+import concurrent.futures
 from sec_engine import get_cik_for_ticker, get_sec_facts, extract_latest_sec_fact
 from sec_engine import get_sec_tickers_list
+from sec_engine import get_sp500_constituents
 from cache import cached
+
+# Yahoo ties requests to one session/crumb; bursty parallel calls often return 401 / Invalid Crumb.
+yf.config.network.retries = 3
 
 
 def _clamp(n, lo=0.0, hi=100.0):
@@ -226,7 +233,9 @@ def get_screener_results(
     price_max=None,
     sector=None,
     dividends_only=False,
+    eval_limit=None,
     limit=250,
+    meta_source=None,
 ):
     """Returns a list of quote-like rows for a screener table.
 
@@ -234,12 +243,14 @@ def get_screener_results(
     - Uses calculate_metrics() per ticker (cached).
     - Intentionally bounded by a universe list (tickers param) to keep latency reasonable.
     """
-    # This endpoint is the hottest path in the app. On low-memory hosts (Render Free),
-    # `Ticker.info` + SEC calls across many tickers can cause timeouts/502s.
-    # We intentionally use a single yfinance batch download here for price/volume/change,
-    # and keep fundamentals for the per-ticker /api/quote endpoint.
+    # This endpoint is a hot path. We batch price/volume via yfinance download and
+    # enrich a bounded candidate set with cached yfinance info (parallelized) so
+    # filters like Market Cap / P/E actually work without scanning the entire market.
 
-    tickers = tickers[: max(0, int(limit))]
+    return_limit = max(0, int(limit))
+    tickers = list(tickers)
+    if eval_limit is not None:
+        tickers = tickers[: max(0, int(eval_limit))]
     if not tickers:
         return []
 
@@ -254,39 +265,117 @@ def get_screener_results(
             return False
         return True
 
-    # Map ticker -> company name from SEC list (cached daily).
-    name_map = {}
-    try:
-        sec_list = get_sec_tickers_list()
-        name_map = {x["ticker"]: x.get("name", "") for x in sec_list}
-    except Exception:
+    # The UI sliders use fixed maxima (e.g., "80+" for P/E). When a user drags to the max,
+    # we treat that as "no upper bound" (same for 0 on the min side).
+    UI_MAX_MARKET_CAP = 2_000_000_000_000
+    UI_MAX_PE = 80
+    UI_MAX_VOLUME = 100_000_000
+    UI_MAX_PRICE = 600
+
+    def normalize_range(min_v, max_v, ui_max):
+        if min_v is not None and min_v <= 0:
+            min_v = None
+        if max_v is not None and max_v >= ui_max:
+            max_v = None
+        return min_v, max_v
+
+    market_cap_min, market_cap_max = normalize_range(
+        market_cap_min, market_cap_max, UI_MAX_MARKET_CAP
+    )
+    pe_min, pe_max = normalize_range(pe_min, pe_max, UI_MAX_PE)
+    volume_min, volume_max = normalize_range(volume_min, volume_max, UI_MAX_VOLUME)
+    price_min, price_max = normalize_range(price_min, price_max, UI_MAX_PRICE)
+
+    meta_source = (meta_source or "").strip().lower()
+
+    # Map ticker -> metadata (name/sector/industry) from the chosen universe source.
+    if meta_source == "sp500":
+        try:
+            constituents = get_sp500_constituents()
+            name_map = {c["ticker"]: (c.get("company_name") or c["ticker"]) for c in constituents}
+            sector_map = {c["ticker"]: (c.get("sector") or "N/A") for c in constituents}
+            industry_map = {c["ticker"]: (c.get("industry") or "N/A") for c in constituents}
+        except Exception:
+            name_map = {}
+            sector_map = {}
+            industry_map = {}
+    else:
         name_map = {}
+        try:
+            sec_list = get_sec_tickers_list()
+            name_map = {x["ticker"]: x.get("name", "") for x in sec_list}
+        except Exception:
+            name_map = {}
+        sector_map = {}
+        industry_map = {}
 
-    try:
-        df = yf.download(
-            " ".join(tickers),
-            period="2d",
-            group_by="ticker",
-            threads=True,
-            progress=False,
-        )
-    except Exception:
-        return []
+    def _chunks(items, size):
+        for i in range(0, len(items), size):
+            yield items[i : i + size]
 
-    multi = getattr(df.columns, "nlevels", 1) > 1
+    def _download_snapshot(chunk):
+        try:
+            df = yf.download(
+                " ".join(chunk),
+                period="5d",
+                group_by="ticker",
+                threads=False,
+                progress=False,
+            )
+        except Exception:
+            return {}
 
+        if df is None or getattr(df, "empty", True):
+            return {}
+
+        multi = getattr(df.columns, "nlevels", 1) > 1
+        out = {}
+        for t in chunk:
+            try:
+                if multi:
+                    if t not in df.columns.get_level_values(0):
+                        continue
+                    sub = df[t]
+                else:
+                    sub = df
+                if sub is None or sub.empty:
+                    continue
+
+                closes = sub["Close"].dropna() if "Close" in sub.columns else None
+                if closes is None or closes.empty:
+                    continue
+                close = float(closes.iloc[-1])
+                prev = float(closes.iloc[-2]) if len(closes) >= 2 else close
+                if prev == 0:
+                    prev = close
+                vol = int(sub["Volume"].iloc[-1]) if "Volume" in sub.columns else None
+                out[t] = (close, prev, vol)
+            except Exception:
+                continue
+        return out
+
+    # First pass: build candidates from OHLCV snapshot (fast).
+    snapshots = {}
+    # Chunk + serialize downloads (threads=False) so we do not invalidate Yahoo's shared crumb.
+    for chunk in _chunks(tickers, 50):
+        snapshots.update(_download_snapshot(chunk))
+        time.sleep(0.15)
+
+    # Retry missing symbols with smaller batches (yfinance can intermittently drop some tickers in large calls).
+    missing = [t for t in tickers if t not in snapshots]
+    if missing:
+        for chunk in _chunks(missing, 12):
+            snapshots.update(_download_snapshot(chunk))
+            time.sleep(0.15)
+
+    candidates = []
     for t in tickers:
         try:
-            sub = df[t] if multi and t in df.columns.get_level_values(0) else df
-            if sub is None or sub.empty or len(sub) < 2:
+            if t not in snapshots:
                 continue
 
-            close = float(sub["Close"].iloc[-1])
-            prev = float(sub["Close"].iloc[-2])
-            if prev == 0:
-                continue
+            close, prev, vol = snapshots[t]
             pct = ((close - prev) / prev) * 100.0
-            vol = int(sub["Volume"].iloc[-1]) if "Volume" in sub.columns else None
 
             if volume_min is not None or volume_max is not None:
                 if not ok_range(vol, volume_min, volume_max):
@@ -296,29 +385,17 @@ def get_screener_results(
                 if not ok_range(close, price_min, price_max):
                     continue
 
-            # Fundamentals are handled in /api/quote. Keep placeholders here.
-            market_cap = None
-            pe_ratio = None
-
-            if market_cap_min is not None or market_cap_max is not None:
-                if not ok_range(market_cap, market_cap_min, market_cap_max):
-                    continue
-
-            if pe_min is not None or pe_max is not None:
-                if not ok_range(pe_ratio, pe_min, pe_max):
-                    continue
-
-            rows.append(
+            candidates.append(
                 {
                     "ticker": t,
                     "company_name": name_map.get(t) or t,
                     "price": round(close, 2),
                     "pct_change": round(pct, 2),
                     "volume": vol,
-                    "market_cap": market_cap,
-                    "pe_ratio": pe_ratio,
-                    "sector": "N/A",
-                    "industry": "N/A",
+                    "market_cap": None,
+                    "pe_ratio": None,
+                    "sector": sector_map.get(t) or "N/A",
+                    "industry": industry_map.get(t) or "N/A",
                     "dividend_yield": None,
                     "fifty_two_week_high": None,
                     "fifty_two_week_low": None,
@@ -328,7 +405,113 @@ def get_screener_results(
         except Exception:
             continue
 
-    return rows
+    if not candidates:
+        return []
+
+    # Second pass: only enrich fundamentals if the filter bounds are actually restrictive.
+    # The UI uses fixed "max" values (e.g., P/E 80+) which should behave like "no upper bound".
+    market_cap_filter_active = (
+        (market_cap_min is not None)
+        or (market_cap_max is not None)
+    )
+    pe_filter_active = (
+        (pe_min is not None)
+        or (pe_max is not None)
+    )
+
+    # Apply sector filter using universe metadata when available (fast).
+    if sector and sector != "All":
+        candidates = [c for c in candidates if (c.get("sector") or "N/A") == sector]
+        if not candidates:
+            return []
+
+    # No expensive filters => return the snapshot rows immediately.
+    if not market_cap_filter_active and not pe_filter_active and not dividends_only:
+        return candidates[:return_limit]
+
+    @cached(ttl=900)
+    def _yf_fast_market_cap(ticker):
+        try:
+            stock = yf.Ticker(ticker)
+            fast = getattr(stock, "fast_info", None) or {}
+            v = fast.get("marketCap")
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    @cached(ttl=900)
+    def _yf_info_subset(ticker):
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info or {}
+            return {
+                "pe_ratio": info.get("trailingPE") or info.get("forwardPE"),
+                "sector": info.get("sector") or "N/A",
+                "industry": info.get("industry") or "N/A",
+                "dividend_yield": info.get("dividendYield"),
+                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            }
+        except Exception:
+            return {
+                "pe_ratio": None,
+                "sector": "N/A",
+                "industry": "N/A",
+                "dividend_yield": None,
+                "fifty_two_week_high": None,
+                "fifty_two_week_low": None,
+            }
+
+    # Enrichment can get expensive at S&P 500 scale. Process candidates in batches
+    # until we fill `return_limit`, rather than pulling `.info` for every ticker.
+    candidates.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
+
+    max_workers = 4
+    batch_size = 60
+    # Hard cap to keep the endpoint responsive on low-tier hosting.
+    max_scan = min(len(candidates), max(return_limit * 2, 240), 420)
+
+    results = []
+    cursor = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        while cursor < len(candidates) and cursor < max_scan and len(results) < return_limit:
+            batch = [dict(x) for x in candidates[cursor : cursor + batch_size]]
+            cursor += batch_size
+
+            if market_cap_filter_active:
+                caps = list(ex.map(_yf_fast_market_cap, [c["ticker"] for c in batch]))
+                for c, cap in zip(batch, caps):
+                    c["market_cap"] = cap
+                batch = [
+                    c
+                    for c in batch
+                    if ok_range(c.get("market_cap"), market_cap_min, market_cap_max)
+                ]
+                if not batch:
+                    continue
+
+            if pe_filter_active or dividends_only:
+                infos = list(ex.map(_yf_info_subset, [c["ticker"] for c in batch]))
+                enriched = []
+                for c, info in zip(batch, infos):
+                    c.update(info)
+                    enriched.append(c)
+
+                batch = []
+                for c in enriched:
+                    if pe_filter_active and not ok_range(c.get("pe_ratio"), pe_min, pe_max):
+                        continue
+                    if dividends_only and (c.get("dividend_yield") or 0) <= 0:
+                        continue
+                    batch.append(c)
+
+                if not batch:
+                    continue
+
+            results.extend(batch)
+
+    return results[:return_limit]
 
 @cached(ttl=120)
 def get_historical_data(ticker, period="1y", interval="1d"):
@@ -339,6 +522,9 @@ def get_historical_data(ticker, period="1y", interval="1d"):
         if df.empty:
             return []
         df = df.reset_index()
+        # yfinance uses "Date" for daily/weekly data and "Datetime" for intraday.
+        date_col = "Date" if "Date" in df.columns else "Datetime" if "Datetime" in df.columns else df.columns[0]
+        df = df.rename(columns={date_col: "Date"})
         df["Date"] = df["Date"].astype(str)
         records = df[["Date", "Open", "High", "Low", "Close", "Volume"]].to_dict("records")
         for r in records:

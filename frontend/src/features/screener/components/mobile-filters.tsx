@@ -5,6 +5,7 @@ import { SlidersHorizontal } from "lucide-react";
 import type { ScreenerFilters } from "../types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -62,6 +63,20 @@ export function MobileFilters({
             <div className="grid gap-5">
               <div>
                 <div className="text-xs font-semibold tracking-wide text-muted">
+                  Search
+                </div>
+                <div className="mt-2">
+                  <Input
+                    value={value.query}
+                    onChange={(e) => onChange({ ...value, query: e.target.value })}
+                    placeholder="Ticker or company"
+                    aria-label="Search ticker or company"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold tracking-wide text-muted">
                   Sector
                 </div>
                 <div className="mt-2">
@@ -85,6 +100,7 @@ export function MobileFilters({
                       <SelectItem value="Energy">Energy</SelectItem>
                       <SelectItem value="Consumer">Consumer</SelectItem>
                       <SelectItem value="Industrials">Industrials</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -113,7 +129,7 @@ export function MobileFilters({
                       })
                     }
                   />
-                  <RangeLabel left="0" right="2T" />
+                  <RangeLabel left="0" right="2T+" />
                 </div>
               </div>
 
@@ -163,7 +179,7 @@ export function MobileFilters({
                       })
                     }
                   />
-                  <RangeLabel left="0" right="100M" />
+                  <RangeLabel left="0" right="100M+" />
                 </div>
               </div>
 
@@ -187,7 +203,7 @@ export function MobileFilters({
                       onChange({ ...value, price: price as [number, number] })
                     }
                   />
-                  <RangeLabel left="$0" right="$600" />
+                  <RangeLabel left="$0" right="$600+" />
                 </div>
               </div>
 
@@ -212,7 +228,7 @@ export function MobileFilters({
                   setOpen(false);
                 }}
               >
-                Apply
+                Run Scan
               </Button>
             </div>
           </div>

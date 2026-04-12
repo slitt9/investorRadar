@@ -1,4 +1,5 @@
 export type ScreenerFilters = {
+  query: string;
   marketCap: [number, number]; // USD
   pe: [number, number];
   volume: [number, number];
@@ -9,7 +10,8 @@ export type ScreenerFilters = {
     | "Healthcare"
     | "Energy"
     | "Consumer"
-    | "Industrials";
+    | "Industrials"
+    | "Other";
   price: [number, number];
 };
 

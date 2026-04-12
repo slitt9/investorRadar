@@ -5,16 +5,16 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AnimatedNumber } from "@/components/animated-number";
 import { cn } from "@/lib/cn";
 import { formatCompactNumber, formatPercent, formatUsd } from "@/lib/format";
 import { StockSparkline } from "./stock-sparkline";
-import { Movers } from "./movers";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { useHistory, useMovers, useQuote, useSparkline } from "../api";
+import { useHistory, useQuote, useSparkline } from "../api";
 import type { SeriesPoint } from "../types";
+import { Star } from "lucide-react";
+import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
 function RangeBar({ low, high, value }: { low: number; high: number; value: number }) {
   const pct = Math.max(0, Math.min(1, (value - low) / Math.max(1, high - low)));
@@ -86,45 +86,6 @@ function BentoStat({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function RadarPulseStat({ value }: { value?: number | null }) {
-  const v = value == null ? null : Math.max(0, Math.min(100, value));
-  const tone =
-    v == null
-      ? "border-border/30 bg-[rgb(var(--surface-2)/0.25)]"
-      : v >= 90
-        ? "border-[rgb(var(--emerald)/0.35)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.05),rgb(var(--emerald)/0.22))]"
-        : v >= 75
-          ? "border-[rgb(var(--emerald)/0.30)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.06),rgb(var(--emerald)/0.16))]"
-          : v >= 60
-            ? "border-[rgb(var(--blue)/0.35)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.06),rgb(var(--blue)/0.18))]"
-            : v >= 45
-              ? "border-[rgb(var(--blue)/0.30)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.10),rgb(var(--blue)/0.12))]"
-              : v >= 30
-                ? "border-[rgb(var(--rose)/0.25)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.14),rgb(var(--surface-2)/0.14))]"
-                : "border-[rgb(var(--rose)/0.35)] bg-[linear-gradient(135deg,rgb(var(--rose)/0.22),rgb(var(--surface-2)/0.12))]";
-
-  const text =
-    v == null
-      ? "text-muted"
-      : v >= 75
-        ? "text-emerald"
-        : v >= 45
-          ? "text-foreground"
-          : "text-rose";
-
-  return (
-    <div className={cn("rounded-2xl border p-3", tone)}>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-        Radar Pulse
-      </div>
-      <div className={cn("mt-1 text-sm font-semibold tabular-nums", text)}>
-        {v == null ? "—" : `${v}/100`}
-      </div>
-    </div>
-  );
-}
-
 function sparklineToSeries(values: number[]): SeriesPoint[] {
   const now = Date.now();
   const step = 24 * 60 * 60 * 1000;
@@ -134,9 +95,27 @@ function sparklineToSeries(values: number[]): SeriesPoint[] {
   }));
 }
 
-function Overview({ ticker }: { ticker: string }) {
+function hasOverviewLabel(value: string | undefined | null): boolean {
+  const t = (value ?? "").trim();
+  return t.length > 0 && t.toUpperCase() !== "N/A";
+}
+
+function formatXAxisLabel(tf: "1W" | "1M" | "1Y" | "MAX", raw: string) {
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  const opts: Intl.DateTimeFormatOptions =
+    tf === "1W"
+      ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
+      : tf === "1M"
+        ? { month: "short", day: "2-digit" }
+        : { year: "2-digit", month: "short" };
+  return new Intl.DateTimeFormat("en-US", opts).format(d);
+}
+
+function Overview({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean }) {
   const quote = useQuote(ticker);
   const sparkline = useSparkline(ticker);
+  const watchlist = useWatchlist();
 
   const m = quote.data;
   const series = React.useMemo(
@@ -161,6 +140,11 @@ function Overview({ ticker }: { ticker: string }) {
   }
 
   const up = (m.pct_change ?? 0) >= 0;
+  const watched = watchlist.has(m.ticker);
+  const sectorIndustry = [m.sector, m.industry]
+    .filter(hasOverviewLabel)
+    .join(" • ");
+  const showCompany = hasOverviewLabel(m.company_name);
 
   return (
     <div className="grid gap-3">
@@ -169,11 +153,28 @@ function Overview({ ticker }: { ticker: string }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-muted">Overview</div>
-              <div className="mt-1 flex items-center gap-3">
+              <div className="mt-1 flex flex-wrap items-center gap-3">
                 <div className="text-2xl font-semibold tracking-tight">{m.ticker}</div>
-                <Badge variant="info">{m.sector} • {m.industry}</Badge>
+                {sectorIndustry ? (
+                  <Badge variant="info">{sectorIndustry}</Badge>
+                ) : null}
+                <button
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+                  onClick={() => watchlist.toggle(m.ticker)}
+                  aria-label={watched ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Star
+                    className={cn(
+                      "h-4 w-4",
+                      watched &&
+                        "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
+                    )}
+                  />
+                </button>
               </div>
-              <div className="mt-1 text-sm text-muted">{m.company_name}</div>
+              {showCompany ? (
+                <div className="mt-1 text-sm text-muted">{m.company_name}</div>
+              ) : null}
               <div className="mt-2 flex items-baseline gap-3">
                 <AnimatedNumber
                   value={m.price}
@@ -227,6 +228,8 @@ function Overview({ ticker }: { ticker: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <Chart ticker={ticker} fullscreen={fullscreen} />
 
       <motion.div whileHover={{ scale: 1.01 }} transition={{ duration: 0.18 }}>
         <div className="grid gap-3">
@@ -316,7 +319,7 @@ function Overview({ ticker }: { ticker: string }) {
   );
 }
 
-function Chart({ ticker }: { ticker: string }) {
+function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean }) {
   const [tf, setTf] = React.useState<"1W" | "1M" | "1Y" | "MAX">("1M");
   const quote = useQuote(ticker);
   const up = (quote.data?.pct_change ?? 0) >= 0;
@@ -324,7 +327,7 @@ function Chart({ ticker }: { ticker: string }) {
 
   const params =
     tf === "1W"
-      ? { period: "5d", interval: "30m" }
+      ? { period: "7d", interval: "30m" }
       : tf === "1M"
         ? { period: "1mo", interval: "1d" }
         : tf === "1Y"
@@ -356,17 +359,39 @@ function Chart({ ticker }: { ticker: string }) {
         </div>
       </div>
 
-      <div className="h-[240px] rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-3 backdrop-blur">
+      <div
+        className={cn(
+          "rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-3 backdrop-blur",
+          fullscreen ? "h-[460px]" : "h-[260px]",
+        )}
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData}>
+          <AreaChart
+            data={chartData}
+            margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
+          >
             <defs>
               <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
                 <stop offset="100%" stopColor={stroke} stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <XAxis hide dataKey="t" />
-            <YAxis hide domain={["dataMin", "dataMax"]} />
+            <XAxis
+              dataKey="t"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+              tick={{ fill: "rgb(var(--muted))", fontSize: 11 }}
+              tickFormatter={(v) => formatXAxisLabel(tf, String(v))}
+            />
+            <YAxis
+              width={56}
+              tickLine={false}
+              axisLine={false}
+              domain={["dataMin", "dataMax"]}
+              tick={{ fill: "rgb(var(--muted))", fontSize: 11 }}
+              tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
+            />
             <Tooltip
               cursor={{ stroke: "rgb(var(--border)/0.35)" }}
               contentStyle={{
@@ -374,7 +399,7 @@ function Chart({ ticker }: { ticker: string }) {
                 border: "1px solid rgb(var(--border)/0.4)",
                 borderRadius: 12,
               }}
-              labelFormatter={() => ""}
+              labelFormatter={(label) => formatXAxisLabel(tf, String(label))}
               formatter={(v: unknown) => [formatUsd(Number(v)), "Price"]}
             />
             <Area
@@ -391,7 +416,7 @@ function Chart({ ticker }: { ticker: string }) {
       </div>
 
       <div className="text-xs text-muted">
-        {history.isFetching ? "Refreshing…" : "Area chart (candlestick toggle planned)."}
+        {history.isFetching ? "Refreshing…" : "Area chart."}
       </div>
     </div>
   );
@@ -409,7 +434,6 @@ export function DetailPanel({
   fullscreen?: boolean;
 }) {
   const desktop = useMediaQuery("(min-width: 1280px)");
-  const movers = useMovers();
 
   const content = ticker ? (
     <div className="grid gap-3">
@@ -418,28 +442,7 @@ export function DetailPanel({
         <div className="text-xs text-muted">{ticker}</div>
       </div>
 
-      <Tabs defaultValue={fullscreen ? "chart" : "overview"}>
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="chart">Chart</TabsTrigger>
-          <TabsTrigger value="movers">Top Movers</TabsTrigger>
-        </TabsList>
-        <TabsContent value="overview">
-          <Overview ticker={ticker} />
-        </TabsContent>
-        <TabsContent value="chart">
-          <Chart ticker={ticker} />
-        </TabsContent>
-        <TabsContent value="movers">
-          {movers.data ? (
-            <Movers movers={movers.data} />
-          ) : (
-            <div className="rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-center text-sm text-muted backdrop-blur">
-              Loading movers…
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      <Overview ticker={ticker} fullscreen={fullscreen} />
     </div>
   ) : (
     <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-center text-sm text-muted backdrop-blur">

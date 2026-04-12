@@ -8,6 +8,7 @@ import { DetailPanel } from "@/features/screener/components/detail-panel";
 import { MobileFilters } from "@/features/screener/components/mobile-filters";
 import { useScreenerFilters, useScreenerResults } from "@/features/screener/use-screener";
 import { cn } from "@/lib/cn";
+import { Input } from "@/components/ui/input";
 
 export function ScreenerView() {
   const { draft, setDraft, applied, apply, reset } = useScreenerFilters();
@@ -22,6 +23,11 @@ export function ScreenerView() {
   const [selectedTicker, setSelectedTicker] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [fullscreen, setFullscreen] = React.useState(false);
+
+  const hasDraftChanges = React.useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(applied),
+    [applied, draft],
+  );
 
   React.useEffect(() => {
     if (!requestedTicker) return;
@@ -56,13 +62,26 @@ export function ScreenerView() {
           </div>
           <div className="flex items-center gap-2">
             <MobileFilters value={draft} onChange={setDraft} onApply={apply} onReset={reset} />
+            <div className="hidden w-[320px] md:block">
+              <Input
+                value={draft.query}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, query: e.target.value }))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") apply();
+                }}
+                placeholder="Search ticker or company…"
+                aria-label="Search ticker or company"
+              />
+            </div>
             <div
               className={cn(
                 "hidden rounded-full border border-border/40 bg-[rgb(var(--surface-1)/0.55)] px-3 py-1 text-xs text-muted backdrop-blur md:block",
                 loading && "border-[rgb(var(--blue)/0.35)]",
               )}
             >
-              {loading ? "Live refresh" : "Ready"}
+              {loading ? "Refreshing" : hasDraftChanges ? "Draft changes" : "Ready"}
             </div>
           </div>
         </div>
