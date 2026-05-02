@@ -1,0 +1,16 @@
+{
+  "name": "investorradar",
+  "private": true,
+  "dependencies": {
+    "next": "16.2.2",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace frontend",
+    "vercel-build": "npm run build --workspace frontend"
+  }
+}
