@@ -7,7 +7,6 @@ from SEC EDGAR to calculate metrics without any paid API keys.
 import time
 
 import yfinance as yf
-import pandas as pd
 import concurrent.futures
 from sec_engine import get_cik_for_ticker, get_sec_facts, extract_latest_sec_fact
 from sec_engine import get_sec_tickers_list
@@ -466,10 +465,10 @@ def get_screener_results(
     # until we fill `return_limit`, rather than pulling `.info` for every ticker.
     candidates.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
 
-    max_workers = 4
-    batch_size = 60
+    max_workers = 2
+    batch_size = 40
     # Hard cap to keep the endpoint responsive on low-tier hosting.
-    max_scan = min(len(candidates), max(return_limit * 2, 240), 420)
+    max_scan = min(len(candidates), max(return_limit * 2, 120), 240)
 
     results = []
     cursor = 0

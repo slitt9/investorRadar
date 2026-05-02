@@ -24,6 +24,13 @@ from sec_engine import get_sec_tickers_list, get_sp500_constituents
 app = Flask(__name__)
 CORS(app)
 
+MEGA_CAP_TICKERS = (
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK-B", "TSLA",
+    "AVGO", "LLY", "JPM", "V", "WMT", "XOM", "MA", "COST",
+    "NFLX", "JNJ", "PG", "ORCL", "HD", "ABBV", "BAC", "KO",
+    "PM", "CVX", "CRM", "UNH", "CSCO", "IBM",
+)
+
 
 @app.route("/api/quote/<ticker>")
 def quote(ticker):
@@ -62,7 +69,7 @@ def screener():
     """Returns screener rows for a bounded universe.
 
     Query params:
-      - universe: "sp500" | "popular" (default: sp500)
+      - universe: "sp500" | "mega" | "popular" (default: sp500)
       - q: optional search string (ticker or name) to restrict results
       - sector: sector filter, "All" to ignore
       - dividends_only: "1" | "true"
@@ -85,8 +92,11 @@ def screener():
     dividends_only = request.args.get("dividends_only", "").strip().lower() in ("1", "true", "yes")
     limit = int(request.args.get("limit", "250"))
 
-    if universe == "sp500":
+    if universe in ("sp500", "mega"):
         constituents = get_sp500_constituents()
+        if universe == "mega":
+            mega_set = set(MEGA_CAP_TICKERS)
+            constituents = [c for c in constituents if c.get("ticker") in mega_set]
         if q:
             constituents = [
                 c
@@ -119,7 +129,7 @@ def screener():
         sector=sector,
         dividends_only=dividends_only,
         limit=limit,
-        meta_source="sp500" if universe == "sp500" else None,
+        meta_source="sp500" if universe in ("sp500", "mega") else None,
     )
 
     # If we didn't pre-filter tickers (non-sp500 universes), apply an in-memory refine.
