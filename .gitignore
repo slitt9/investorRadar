@@ -50,3 +50,7 @@ node_modules/
 dist/
 .vite/
 
+# Frontend source utilities should be tracked.
+!frontend/src/lib/
+!frontend/src/lib/**
+
