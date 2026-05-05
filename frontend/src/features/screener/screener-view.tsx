@@ -8,6 +8,7 @@ import { DetailPanel } from "@/features/screener/components/detail-panel";
 import { MobileFilters } from "@/features/screener/components/mobile-filters";
 import { useScreenerFilters, useScreenerResults } from "@/features/screener/use-screener";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function ScreenerView() {
@@ -75,6 +76,26 @@ export function ScreenerView() {
                 aria-label="Search ticker or company"
               />
             </div>
+            {hasDraftChanges && (
+              <>
+                <Button
+                  variant="subtle"
+                  size="sm"
+                  className="hidden md:inline-flex"
+                  onClick={reset}
+                >
+                  Reset
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="hidden md:inline-flex"
+                  onClick={apply}
+                >
+                  Apply Changes
+                </Button>
+              </>
+            )}
             <div
               className={cn(
                 "hidden rounded-full border border-border/40 bg-[rgb(var(--surface-1)/0.55)] px-3 py-1 text-xs text-muted backdrop-blur md:block",

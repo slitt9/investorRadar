@@ -26,6 +26,8 @@ wheels/
 # Flask
 instance/
 .webassets-cache
+backend/data/*.db
+backend/data/*.db-*
 
 # IDE
 .vscode/

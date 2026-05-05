@@ -20,6 +20,11 @@ from metrics import (
     get_screener_results,
 )
 from sec_engine import get_sec_tickers_list, get_sp500_constituents
+from universe_sync import (
+    ensure_stock_universe_ready,
+    search_stock_universe,
+    sync_stock_universe,
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -44,57 +49,47 @@ def _normalize_yahoo_symbol(symbol):
 
 
 def _search_public_tickers(query, *, limit=150):
-    """Return a bounded list of matching public-company tickers from SEC data.
-
-    This keeps the default screener universe fast, while allowing the query box
-    to search beyond the S&P 500 when the user is explicit.
-    """
-    q = (query or "").strip().upper()
+    """Return a bounded list of matching public-company tickers from local DB."""
+    q = (query or "").strip()
     if not q:
         return []
 
+    ensure_stock_universe_ready()
+    results = search_stock_universe(q, limit=limit)
+    if results:
+        return [
+            {
+                "ticker": row["ticker"],
+                "company_name": row["company_name"],
+            }
+            for row in results
+        ]
+
+    # Fallback to SEC data if the local database is unavailable or stale.
     ranked = []
+    q_upper = q.upper()
     for item in get_sec_tickers_list():
         ticker = _normalize_yahoo_symbol(item.get("ticker"))
         name = (item.get("name") or "").upper()
         if not ticker:
             continue
-
-        if ticker == q:
+        if ticker == q_upper:
             score = 0
-        elif ticker.startswith(q):
+        elif ticker.startswith(q_upper):
             score = 1
-        elif name.startswith(q):
+        elif name.startswith(q_upper):
             score = 2
-        elif q in ticker or q in name:
+        elif q_upper in ticker or q_upper in name:
             score = 3
         else:
             continue
-
-        ranked.append(
-            (
-                score,
-                len(ticker),
-                ticker,
-                {
-                    "ticker": ticker,
-                    "company_name": item.get("name") or ticker,
-                },
-            )
-        )
+        ranked.append((score, len(ticker), ticker, item.get("name") or ticker))
 
     ranked.sort(key=lambda x: (x[0], x[1], x[2]))
-    seen = set()
-    deduped = []
-    for _, _, _, row in ranked:
-        ticker = row["ticker"]
-        if ticker in seen:
-            continue
-        seen.add(ticker)
-        deduped.append(row)
-        if len(deduped) >= limit:
-            break
-    return deduped
+    return [
+        {"ticker": ticker, "company_name": company_name}
+        for _, _, ticker, company_name in ranked[:limit]
+    ]
 
 
 @app.route("/api/quote/<ticker>")
@@ -228,15 +223,38 @@ def search():
     query = request.args.get("q", "").upper().strip()
     if not query or len(query) < 1:
         return jsonify([])
+    ensure_stock_universe_ready()
+    results = search_stock_universe(query, limit=10)
+    if results:
+        return jsonify(
+            [
+                {
+                    "ticker": row["ticker"],
+                    "name": row["company_name"],
+                    "cik": row.get("cik"),
+                    "exchange": row.get("exchange"),
+                    "security_type": row.get("security_type"),
+                }
+                for row in results
+            ]
+        )
 
     tickers = get_sec_tickers_list()
-    results = []
+    fallback = []
     for t in tickers:
         if query in t["ticker"] or query in t["name"].upper():
-            results.append(t)
-        if len(results) >= 10:
+            fallback.append(t)
+        if len(fallback) >= 10:
             break
-    return jsonify(results)
+    return jsonify(fallback)
+
+
+@app.route("/api/admin/universe/sync", methods=["POST"])
+def sync_universe():
+    """Manually refresh the local stock universe database."""
+    force = request.args.get("force", "").strip().lower() in ("1", "true", "yes")
+    result = sync_stock_universe(force=force)
+    return jsonify(result)
 
 
 @app.route("/api/news/<ticker>")
