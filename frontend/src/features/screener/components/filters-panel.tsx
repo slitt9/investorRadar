@@ -103,7 +103,7 @@ export function FiltersPanel({
                       />
                     </div>
                     <div className="mt-2 text-xs text-muted">
-                      Tip: refine results without expanding the universe.
+                      Search reaches beyond the default screener universe.
                     </div>
                   </div>
 

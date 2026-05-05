@@ -31,7 +31,6 @@ export function Sidebar() {
                 <div className="text-sm font-semibold tracking-tight">
                   InvestorRadar
                 </div>
-                <div className="text-xs text-muted">Executive</div>
               </div>
             )}
           </div>
@@ -107,21 +106,7 @@ export function Sidebar() {
             })}
           </nav>
         </ScrollArea>
-
-        <div className={cn("px-4 pb-4", collapsed && "px-2")}>
-          <div className="rounded-2xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)] p-3 text-xs text-muted">
-            {!collapsed ? (
-              <div className="leading-relaxed">
-                Tip: Press <span className="text-foreground">⌘ K</span> for
-                command palette.
-              </div>
-            ) : (
-              <div className="grid place-items-center">⌘K</div>
-            )}
-          </div>
-        </div>
       </div>
     </aside>
   );
 }
-

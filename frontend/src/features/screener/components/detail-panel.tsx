@@ -434,8 +434,11 @@ export function DetailPanel({
   fullscreen?: boolean;
 }) {
   const desktop = useMediaQuery("(min-width: 1280px)");
+  if (!ticker) {
+    return null;
+  }
 
-  const content = ticker ? (
+  const content = (
     <div className="grid gap-3">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold tracking-tight">Details</div>
@@ -443,10 +446,6 @@ export function DetailPanel({
       </div>
 
       <Overview ticker={ticker} fullscreen={fullscreen} />
-    </div>
-  ) : (
-    <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-center text-sm text-muted backdrop-blur">
-      Select a stock to view details.
     </div>
   );
 

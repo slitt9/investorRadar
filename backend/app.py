@@ -32,6 +32,66 @@ MEGA_CAP_TICKERS = (
 )
 
 
+def _normalize_yahoo_symbol(symbol):
+    return (
+        (symbol or "")
+        .strip()
+        .upper()
+        .replace(".", "-")
+        .replace("/", "-")
+        .replace(" ", "")
+    )
+
+
+def _search_public_tickers(query, *, limit=60):
+    """Return a bounded list of matching public-company tickers from SEC data.
+
+    This keeps the default screener universe fast, while allowing the query box
+    to search beyond the S&P 500 when the user is explicit.
+    """
+    q = (query or "").strip().upper()
+    if not q:
+        return []
+
+    exact = []
+    prefix = []
+    contains = []
+
+    for item in get_sec_tickers_list():
+        ticker = _normalize_yahoo_symbol(item.get("ticker"))
+        name = (item.get("name") or "").upper()
+        if not ticker:
+            continue
+
+        row = {
+            "ticker": ticker,
+            "company_name": item.get("name") or ticker,
+        }
+
+        if ticker == q:
+            exact.append(row)
+        elif ticker.startswith(q):
+            prefix.append(row)
+        elif q in ticker or q in name:
+            contains.append(row)
+
+        if len(exact) + len(prefix) + len(contains) >= limit * 3:
+            break
+
+    ordered = exact + prefix + contains
+    deduped = []
+    seen = set()
+    for row in ordered:
+        ticker = row["ticker"]
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        deduped.append(row)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
 @app.route("/api/quote/<ticker>")
 def quote(ticker):
     """Returns locally calculated metrics for a ticker."""
@@ -92,19 +152,18 @@ def screener():
     dividends_only = request.args.get("dividends_only", "").strip().lower() in ("1", "true", "yes")
     limit = int(request.args.get("limit", "250"))
 
-    if universe in ("sp500", "mega"):
+    meta_source = None
+
+    if q:
+        matches = _search_public_tickers(q, limit=60)
+        scan_list = tuple(m["ticker"] for m in matches)
+    elif universe in ("sp500", "mega"):
         constituents = get_sp500_constituents()
         if universe == "mega":
             mega_set = set(MEGA_CAP_TICKERS)
             constituents = [c for c in constituents if c.get("ticker") in mega_set]
-        if q:
-            constituents = [
-                c
-                for c in constituents
-                if q in (c.get("ticker") or "").upper()
-                or q in (c.get("company_name") or "").upper()
-            ]
         scan_list = tuple(c["ticker"] for c in constituents)
+        meta_source = "sp500"
     else:
         # Keep a fallback "popular" universe for low-latency demos.
         scan_list = (
@@ -129,18 +188,8 @@ def screener():
         sector=sector,
         dividends_only=dividends_only,
         limit=limit,
-        meta_source="sp500" if universe in ("sp500", "mega") else None,
+        meta_source=meta_source,
     )
-
-    # If we didn't pre-filter tickers (non-sp500 universes), apply an in-memory refine.
-    if q and universe != "sp500":
-        # Allow quick search refine without new endpoints.
-        rows = [
-            r
-            for r in rows
-            if q in (r.get("ticker") or "")
-            or q in (r.get("company_name") or "").upper()
-        ]
 
     # Default sort: pct_change desc (matches UI default).
     rows.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
