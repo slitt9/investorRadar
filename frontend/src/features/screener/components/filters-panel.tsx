@@ -45,8 +45,14 @@ export function FiltersPanel({
   className?: string;
 }) {
   return (
-    <div className={cn(collapsed ? "w-[72px]" : "w-[320px]", className)}>
-      <div className="sticky top-16 h-[calc(100vh-4rem)] p-4">
+    <div
+      className={cn(
+        "sticky top-16 self-start",
+        collapsed ? "w-[72px]" : "w-[320px]",
+        className,
+      )}
+    >
+      <div className="h-[calc(100vh-4rem)] p-4">
         <Card className="h-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2">

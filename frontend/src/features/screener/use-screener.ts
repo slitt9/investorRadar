@@ -10,6 +10,7 @@ const UI_MAX_PE = 80;
 const UI_MAX_VOLUME = 100_000_000;
 const UI_MAX_PRICE = 600;
 const FAST_PATH_MARKET_CAP_MIN = 1_000_000_000_000;
+const QUERY_RESULT_LIMIT = 120;
 
 function isWideOpen(filters: ScreenerFilters) {
   return (
@@ -41,21 +42,38 @@ function isMegaCapFastPath(filters: ScreenerFilters) {
   );
 }
 
+function shouldAutoBroadenQuery(filters: ScreenerFilters) {
+  return (
+    filters.query.trim().length > 0 &&
+    filters.sector === "All" &&
+    filters.marketCap[0] >= FAST_PATH_MARKET_CAP_MIN &&
+    filters.marketCap[1] >= UI_MAX_MARKET_CAP &&
+    filters.pe[0] <= 0 &&
+    filters.pe[1] >= UI_MAX_PE &&
+    filters.volume[0] <= 0 &&
+    filters.volume[1] >= UI_MAX_VOLUME &&
+    filters.price[0] <= 0 &&
+    filters.price[1] >= UI_MAX_PRICE
+  );
+}
+
 async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
   const megaCapFastPath = isMegaCapFastPath(filters);
+  const queryBroadening = shouldAutoBroadenQuery(filters);
+  const marketCap = queryBroadening ? ([0, UI_MAX_MARKET_CAP] as [number, number]) : filters.marketCap;
   return apiGet<ScreenerRow[]>("/api/screener", {
     universe: megaCapFastPath ? "mega" : "sp500",
     q: filters.query,
     sector: filters.sector,
-    market_cap_min: filters.marketCap[0],
-    market_cap_max: filters.marketCap[1],
+    market_cap_min: marketCap[0],
+    market_cap_max: marketCap[1],
     pe_min: filters.pe[0],
     pe_max: filters.pe[1],
     volume_min: filters.volume[0],
     volume_max: filters.volume[1],
     price_min: filters.price[0],
     price_max: filters.price[1],
-    limit: megaCapFastPath ? 60 : isWideOpen(filters) ? 180 : 120,
+    limit: queryBroadening ? QUERY_RESULT_LIMIT : megaCapFastPath ? 60 : isWideOpen(filters) ? 180 : 120,
   });
 }
 

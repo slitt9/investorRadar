@@ -13,7 +13,7 @@ import { StockSparkline } from "./stock-sparkline";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHistory, useQuote, useSparkline } from "../api";
 import type { SeriesPoint } from "../types";
-import { Star } from "lucide-react";
+import { ChevronLeft, ChevronRight, Star } from "lucide-react";
 import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
 function RangeBar({ low, high, value }: { low: number; high: number; value: number }) {
@@ -460,8 +460,32 @@ export function DetailPanel({
       );
     }
 
+    if (!open) {
+      return (
+        <aside className="hidden w-[64px] shrink-0 border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] p-2 backdrop-blur-xl xl:flex xl:flex-col xl:items-center xl:justify-start">
+          <button
+            className="mt-4 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={() => onOpenChange(true)}
+            aria-label="Restore details"
+            title={ticker}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </aside>
+      );
+    }
+
     return (
       <aside className="hidden w-[420px] shrink-0 border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] p-4 backdrop-blur-xl xl:block">
+        <div className="mb-3 flex justify-end">
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={() => onOpenChange(false)}
+            aria-label="Minimize details"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
         {content}
       </aside>
     );

@@ -43,7 +43,7 @@ def _normalize_yahoo_symbol(symbol):
     )
 
 
-def _search_public_tickers(query, *, limit=60):
+def _search_public_tickers(query, *, limit=150):
     """Return a bounded list of matching public-company tickers from SEC data.
 
     This keeps the default screener universe fast, while allowing the query box
@@ -53,35 +53,40 @@ def _search_public_tickers(query, *, limit=60):
     if not q:
         return []
 
-    exact = []
-    prefix = []
-    contains = []
-
+    ranked = []
     for item in get_sec_tickers_list():
         ticker = _normalize_yahoo_symbol(item.get("ticker"))
         name = (item.get("name") or "").upper()
         if not ticker:
             continue
 
-        row = {
-            "ticker": ticker,
-            "company_name": item.get("name") or ticker,
-        }
-
         if ticker == q:
-            exact.append(row)
+            score = 0
         elif ticker.startswith(q):
-            prefix.append(row)
+            score = 1
+        elif name.startswith(q):
+            score = 2
         elif q in ticker or q in name:
-            contains.append(row)
+            score = 3
+        else:
+            continue
 
-        if len(exact) + len(prefix) + len(contains) >= limit * 3:
-            break
+        ranked.append(
+            (
+                score,
+                len(ticker),
+                ticker,
+                {
+                    "ticker": ticker,
+                    "company_name": item.get("name") or ticker,
+                },
+            )
+        )
 
-    ordered = exact + prefix + contains
-    deduped = []
+    ranked.sort(key=lambda x: (x[0], x[1], x[2]))
     seen = set()
-    for row in ordered:
+    deduped = []
+    for _, _, _, row in ranked:
         ticker = row["ticker"]
         if ticker in seen:
             continue
@@ -155,7 +160,7 @@ def screener():
     meta_source = None
 
     if q:
-        matches = _search_public_tickers(q, limit=60)
+        matches = _search_public_tickers(q, limit=150)
         scan_list = tuple(m["ticker"] for m in matches)
     elif universe in ("sp500", "mega"):
         constituents = get_sp500_constituents()

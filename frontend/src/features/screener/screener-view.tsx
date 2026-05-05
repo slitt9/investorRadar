@@ -38,7 +38,7 @@ export function ScreenerView() {
   const loading = isLoading || isFetching;
 
   return (
-    <div className="flex min-h-0 w-full">
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full items-start overflow-hidden">
       <FiltersPanel
         value={draft}
         onChange={setDraft}
@@ -49,7 +49,7 @@ export function ScreenerView() {
         className="hidden lg:block"
       />
 
-      <section className="min-w-0 flex-1 p-4 lg:p-6">
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden p-4 lg:p-6">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <div className="text-xs text-muted">Screener</div>
@@ -86,7 +86,7 @@ export function ScreenerView() {
           </div>
         </div>
 
-        <div className="h-[calc(100vh-8.5rem)] min-h-[520px]">
+        <div className="min-h-0 flex-1">
           {results.isError && (
             <div className="mb-3 rounded-2xl border border-[rgb(var(--rose)/0.35)] bg-[rgb(var(--rose)/0.10)] p-4 text-sm">
               <div className="font-semibold tracking-tight">Backend unreachable</div>
