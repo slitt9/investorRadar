@@ -70,6 +70,36 @@ def ensure_schema() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_stock_universe_exchange
                 ON stock_universe(exchange_code, is_active);
+
+            CREATE TABLE IF NOT EXISTS stock_snapshot (
+                ticker TEXT PRIMARY KEY,
+                as_of TEXT NOT NULL,
+                price REAL,
+                prev_close REAL,
+                pct_change REAL,
+                volume INTEGER,
+                market_cap REAL,
+                pe_ratio REAL,
+                sector TEXT,
+                industry TEXT,
+                dividend_yield REAL,
+                fifty_two_week_high REAL,
+                fifty_two_week_low REAL,
+                radar_pulse INTEGER,
+                company_name TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_stock_snapshot_sector
+                ON stock_snapshot(sector);
+
+            CREATE INDEX IF NOT EXISTS idx_stock_snapshot_market_cap
+                ON stock_snapshot(market_cap);
+
+            CREATE INDEX IF NOT EXISTS idx_stock_snapshot_pe
+                ON stock_snapshot(pe_ratio);
+
+            CREATE INDEX IF NOT EXISTS idx_stock_snapshot_as_of
+                ON stock_snapshot(as_of);
             """
         )
 

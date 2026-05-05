@@ -1,28 +1,80 @@
-# InvestorRadar 📡
+# InvestorRadar
 
-A modern, fast, and feature-rich stock analyzer dashboard built entirely with Python and Streamlit.
+Stock screener and dashboard: **Next.js** frontend and **Flask** API. The screener table reads from a **local SQLite snapshot** so filters do not hit Yahoo on every request. Detail routes (quote, charts, markets) may still fetch **SEC EDGAR** and **yfinance** on demand.
 
-This professional app uses data directly from the **US Securities and Exchange Commission (SEC) EDGAR API** to calculate fundamental financial metrics manually, and utilizes the free `yfinance` library for real-time price quotes and historical charts. 
+No paid API keys are required.
 
-**Zero API keys are required to run this app!**
+## Requirements
 
-## Features
-- **Zero API Keys**: No rate limits, no subscriptions, no complicated setups!
-- **True Local Calculation**: Financial metrics (like Market Cap, PE Ratio, Book Value) are calculated mathematically on-the-fly using raw SEC XBRL GAAP facts.
-- **Dark Mode UI**: Clean, professional design out of the box using Streamlit's robust UI kit and Plotly template styling.
-- **Interactive Timeframes Charts**: 1D to Max charting, customized with Candlestick and Volume subplots via `plotly`.
-- **Market Dashboard**: Dynamic top movers and major indices loaded from Yahoo Finance.
-- **Deep Dive Views**: Direct SEC Fundamentals, Recent News, and beautifully responsive layout.
+- Python 3.11+ (virtualenv recommended)
+- Node.js 20+ (for the frontend)
 
-## Requirements & Setup
+## Backend
 
-1. **Clone or Download** the folder contents.
-2. **Install Dependencies**:
 ```bash
+cd backend
 pip install -r requirements.txt
+python app.py
 ```
 
-3. **Run the application**:
+API base URL defaults to `http://localhost:5000`.
+
+### Environment
+
+| Variable | Purpose |
+|----------|---------|
+| `INVESTOR_RADAR_DB_PATH` | Optional path to SQLite file (default: `backend/data/investorradar.db`) |
+| `UNIVERSE_STALE_HOURS` | Re-sync Nasdaq/SEC listing data if older than this many hours (default: `72`) |
+| `PORT` | Flask listen port (default: `5000`) |
+| `FLASK_USE_RELOADER` | On Windows, set `1` to enable the debug reloader (can be unstable). |
+
+### Local database and refresh jobs
+
+1. **Universe** (`stock_universe`): Nasdaq Trader symbol directories + SEC `company_tickers.json` (CIK, titles). Populated on first search if empty, or manually:
+
+   ```bash
+   cd backend
+   python refresh_universe.py --force
+   ```
+
+2. **Screener snapshots** (`stock_snapshot`): Run after the universe exists:
+
+   ```bash
+   cd backend
+   python refresh_quotes.py --universe sp500
+   python refresh_fundamentals.py --universe sp500
+   ```
+
+   Or one shot (intended for **cron** / **Task Scheduler**, e.g. ~3× per US trading day):
+
+   ```bash
+   cd backend
+   python scheduled_refresh.py
+   ```
+
+   Windows helper: `backend/scripts/scheduled_refresh.ps1`  
+   Unix helper: `backend/scripts/scheduled_refresh.sh`
+
+   Optional env for `scheduled_refresh.py`: `REFRESH_UNIVERSE_MODE` (`sp500` \| `mega` \| `popular`), `SKIP_UNIVERSE_SYNC`, `FORCE_UNIVERSE_SYNC`.
+
+3. **Admin HTTP** (while the API is running): `POST /api/admin/universe/sync?force=true` refreshes listings only (not quotes/fundamentals).
+
+The SQLite file is gitignored (`backend/data/*.db`).
+
+## Frontend
+
 ```bash
-streamlit run investorradar.py
+cd frontend
+npm install
+npm run dev
 ```
+
+Set `NEXT_PUBLIC_API_BASE_URL` if the API is not on `http://localhost:5000`.
+
+## Data sources
+
+- **Universe:** [Nasdaq Trader symbol directory](https://www.nasdaqtrader.com/trader.aspx?id=SymbolDirDefs), [SEC company_tickers.json](https://www.sec.gov/files/company_tickers.json)
+- **Screener snapshot quotes:** batched yfinance (refresh scripts)
+- **Screener fundamentals:** SEC company facts where possible; Yahoo metadata as fallback for sector/industry and gaps
+
+Use a descriptive `User-Agent` when calling `sec.gov` (already set in the backend).

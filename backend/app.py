@@ -1,7 +1,8 @@
 """InvestorRadar Flask REST API.
 
 Exposes financial data endpoints that the React frontend consumes.
-All data is sourced from SEC EDGAR + yfinance. Zero paid API keys required.
+Screener rows are served from a local SQLite snapshot (refresh via scripts);
+other routes may still use SEC EDGAR + yfinance on demand.
 """
 
 import os
@@ -17,9 +18,10 @@ from metrics import (
     get_markets_snapshot,
     get_sector_performance,
     get_news,
-    get_screener_results,
 )
-from sec_engine import get_sec_tickers_list, get_sp500_constituents
+from screener_db import get_screener_results
+from sec_engine import get_sp500_constituents
+from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import (
     ensure_stock_universe_ready,
     search_stock_universe,
@@ -28,24 +30,6 @@ from universe_sync import (
 
 app = Flask(__name__)
 CORS(app)
-
-MEGA_CAP_TICKERS = (
-    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK-B", "TSLA",
-    "AVGO", "LLY", "JPM", "V", "WMT", "XOM", "MA", "COST",
-    "NFLX", "JNJ", "PG", "ORCL", "HD", "ABBV", "BAC", "KO",
-    "PM", "CVX", "CRM", "UNH", "CSCO", "IBM",
-)
-
-
-def _normalize_yahoo_symbol(symbol):
-    return (
-        (symbol or "")
-        .strip()
-        .upper()
-        .replace(".", "-")
-        .replace("/", "-")
-        .replace(" ", "")
-    )
 
 
 def _search_public_tickers(query, *, limit=150):
@@ -56,39 +40,9 @@ def _search_public_tickers(query, *, limit=150):
 
     ensure_stock_universe_ready()
     results = search_stock_universe(q, limit=limit)
-    if results:
-        return [
-            {
-                "ticker": row["ticker"],
-                "company_name": row["company_name"],
-            }
-            for row in results
-        ]
-
-    # Fallback to SEC data if the local database is unavailable or stale.
-    ranked = []
-    q_upper = q.upper()
-    for item in get_sec_tickers_list():
-        ticker = _normalize_yahoo_symbol(item.get("ticker"))
-        name = (item.get("name") or "").upper()
-        if not ticker:
-            continue
-        if ticker == q_upper:
-            score = 0
-        elif ticker.startswith(q_upper):
-            score = 1
-        elif name.startswith(q_upper):
-            score = 2
-        elif q_upper in ticker or q_upper in name:
-            score = 3
-        else:
-            continue
-        ranked.append((score, len(ticker), ticker, item.get("name") or ticker))
-
-    ranked.sort(key=lambda x: (x[0], x[1], x[2]))
     return [
-        {"ticker": ticker, "company_name": company_name}
-        for _, _, ticker, company_name in ranked[:limit]
+        {"ticker": row["ticker"], "company_name": row["company_name"]}
+        for row in results
     ]
 
 
@@ -165,15 +119,7 @@ def screener():
         scan_list = tuple(c["ticker"] for c in constituents)
         meta_source = "sp500"
     else:
-        # Keep a fallback "popular" universe for low-latency demos.
-        scan_list = (
-            "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "GOOGL", "AMZN", "META",
-            "NFLX", "JPM", "V", "WMT", "DIS", "INTC", "BA", "PYPL",
-            "CRM", "UBER", "COIN", "PLTR", "AVGO", "ORCL", "ADBE", "QCOM",
-            "TXN", "MU", "CSCO", "SHOP", "SNOW", "PANW", "CRWD", "NOW",
-            "XOM", "CVX", "COP", "PFE", "JNJ", "MRK", "UNH", "ABBV",
-            "GS", "MS", "BAC", "C", "MA", "AXP", "KO", "PEP",
-        )
+        scan_list = POPULAR_TICKERS
 
     rows = get_screener_results(
         tickers=scan_list,
@@ -225,28 +171,18 @@ def search():
         return jsonify([])
     ensure_stock_universe_ready()
     results = search_stock_universe(query, limit=10)
-    if results:
-        return jsonify(
-            [
-                {
-                    "ticker": row["ticker"],
-                    "name": row["company_name"],
-                    "cik": row.get("cik"),
-                    "exchange": row.get("exchange"),
-                    "security_type": row.get("security_type"),
-                }
-                for row in results
-            ]
-        )
-
-    tickers = get_sec_tickers_list()
-    fallback = []
-    for t in tickers:
-        if query in t["ticker"] or query in t["name"].upper():
-            fallback.append(t)
-        if len(fallback) >= 10:
-            break
-    return jsonify(fallback)
+    return jsonify(
+        [
+            {
+                "ticker": row["ticker"],
+                "name": row["company_name"],
+                "cik": row.get("cik"),
+                "exchange": row.get("exchange"),
+                "security_type": row.get("security_type"),
+            }
+            for row in results
+        ]
+    )
 
 
 @app.route("/api/admin/universe/sync", methods=["POST"])

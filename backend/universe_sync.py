@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,9 @@ OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 SYNC_META_KEY = "stock_universe_last_synced_at"
 
 SYNC_HEADERS = {"User-Agent": "InvestorRadarApp admin@investorradar.com"}
+
+# Nasdaq symbol directory changes infrequently; default 72h unless overridden.
+_UNIVERSE_STALE_HOURS = int(os.environ.get("UNIVERSE_STALE_HOURS", "72"))
 
 _sync_lock = threading.Lock()
 
@@ -282,7 +286,9 @@ def sync_stock_universe(*, force: bool = False) -> dict[str, object]:
                     "SELECT COUNT(*) AS count FROM stock_universe"
                 ).fetchone()
                 count = int(count_row["count"] if count_row else 0)
-                if count > 0 and last_sync and datetime.now(timezone.utc) - last_sync < timedelta(hours=24):
+                if count > 0 and last_sync and datetime.now(timezone.utc) - last_sync < timedelta(
+                    hours=_UNIVERSE_STALE_HOURS
+                ):
                     return {
                         "status": "fresh",
                         "count": count,
@@ -342,7 +348,8 @@ def sync_stock_universe(*, force: bool = False) -> dict[str, object]:
         return {"status": "synced", "count": len(rows), "synced_at": synced_at}
 
 
-def ensure_stock_universe_ready(*, stale_after_hours: int = 24) -> dict[str, object]:
+def ensure_stock_universe_ready(*, stale_after_hours: int | None = None) -> dict[str, object]:
+    hours = stale_after_hours if stale_after_hours is not None else _UNIVERSE_STALE_HOURS
     ensure_schema()
     with get_db() as conn:
         count_row = conn.execute("SELECT COUNT(*) AS count FROM stock_universe").fetchone()
@@ -352,7 +359,7 @@ def ensure_stock_universe_ready(*, stale_after_hours: int = 24) -> dict[str, obj
     if count == 0:
         return sync_stock_universe(force=True)
 
-    if last_sync and datetime.now(timezone.utc) - last_sync > timedelta(hours=stale_after_hours):
+    if last_sync and datetime.now(timezone.utc) - last_sync > timedelta(hours=hours):
         return sync_stock_universe(force=True)
 
     return {

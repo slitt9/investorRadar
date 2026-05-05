@@ -47,6 +47,11 @@ def _normalize_yahoo_ticker(symbol):
     )
 
 
+def normalize_sector(sector):
+    """Public wrapper: map raw GICS / Yahoo sector labels to UI buckets."""
+    return _normalize_sector(sector)
+
+
 def _normalize_sector(sector):
     s = (sector or "").strip()
     if not s:
