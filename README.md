@@ -25,6 +25,8 @@ API base URL defaults to `http://localhost:5000`.
 |----------|---------|
 | `INVESTOR_RADAR_DB_PATH` | Optional path to SQLite file (default: `backend/data/investorradar.db`) |
 | `UNIVERSE_STALE_HOURS` | Re-sync Nasdaq/SEC listing data if older than this many hours (default: `72`) |
+| `SCREENER_UNIVERSE_MAX` | Max tickers when API `universe=all` (default: `4000`) |
+| `REFRESH_ALL_CAP` | Max tickers for `refresh_* --universe all` (default: `2500`) |
 | `PORT` | Flask listen port (default: `5000`) |
 | `FLASK_USE_RELOADER` | On Windows, set `1` to enable the debug reloader (can be unstable). |
 
@@ -43,6 +45,13 @@ API base URL defaults to `http://localhost:5000`.
    cd backend
    python refresh_quotes.py --universe sp500
    python refresh_fundamentals.py --universe sp500
+   ```
+
+   Broader US listings (thousands of tickers; longer runs):
+
+   ```bash
+   python refresh_quotes.py --universe all
+   python refresh_fundamentals.py --universe all --max 800
    ```
 
    Or one shot (intended for **cron** / **Task Scheduler**, e.g. ~3× per US trading day):

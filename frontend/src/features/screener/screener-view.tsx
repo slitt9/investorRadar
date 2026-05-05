@@ -39,7 +39,7 @@ export function ScreenerView() {
   const loading = isLoading || isFetching;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full items-start overflow-hidden">
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full items-stretch gap-3 overflow-hidden pr-1 lg:pr-2">
       <FiltersPanel
         value={draft}
         onChange={setDraft}
@@ -50,7 +50,7 @@ export function ScreenerView() {
         className="hidden lg:block"
       />
 
-      <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden p-4 lg:p-6">
+      <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 lg:p-6">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <div className="text-xs text-muted">Screener</div>
@@ -156,6 +156,7 @@ export function ScreenerView() {
           if (!o) setFullscreen(false);
         }}
         fullscreen={fullscreen}
+        onFullscreenChange={setFullscreen}
       />
     </div>
   );

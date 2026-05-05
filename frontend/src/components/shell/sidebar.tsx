@@ -21,13 +21,23 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-full w-full flex-col">
-        <div className="flex items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-xl border border-border/40 bg-[linear-gradient(135deg,rgb(var(--blue)/0.18),rgb(var(--purple)/0.15))]">
+        <div
+          className={cn(
+            "flex items-center gap-3 px-4 py-4",
+            collapsed ? "flex-col" : "flex-row",
+          )}
+        >
+          <div
+            className={cn(
+              "flex min-w-0 items-center gap-2",
+              collapsed ? "flex-col" : "flex-1",
+            )}
+          >
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border/40 bg-[linear-gradient(135deg,rgb(var(--blue)/0.18),rgb(var(--purple)/0.15))]">
               <Radar className="h-4.5 w-4.5" />
             </div>
             {!collapsed && (
-              <div className="leading-tight">
+              <div className="min-w-0 leading-tight">
                 <div className="text-sm font-semibold tracking-tight">
                   InvestorRadar
                 </div>
@@ -35,8 +45,9 @@ export function Sidebar() {
             )}
           </div>
           <button
+            type="button"
             onClick={() => setCollapsed((v) => !v)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <PanelLeft className="h-4 w-4" />

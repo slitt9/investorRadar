@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from datetime import datetime, timezone
 
@@ -11,6 +12,7 @@ import yfinance as yf
 from db import ensure_schema, get_db
 from sec_engine import get_sp500_constituents
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
+from universe_sync import get_searchable_equity_tickers
 
 yf.config.network.retries = 3
 
@@ -81,6 +83,9 @@ def resolve_tickers(mode: str) -> list[str]:
         return sorted(mega)
     if mode == "popular":
         return list(POPULAR_TICKERS)
+    if mode in ("all", "equities", "extended"):
+        cap = int(os.environ.get("REFRESH_ALL_CAP", "2500"))
+        return get_searchable_equity_tickers(limit=cap)
     raise ValueError(f"Unknown universe mode: {mode}")
 
 
@@ -145,9 +150,9 @@ def main():
     p = argparse.ArgumentParser(description="Refresh quote fields in stock_snapshot")
     p.add_argument(
         "--universe",
-        choices=("sp500", "mega", "popular"),
+        choices=("sp500", "mega", "popular", "all"),
         default="sp500",
-        help="Which ticker list to refresh",
+        help="Which ticker list to refresh (all = searchable equities, cap from REFRESH_ALL_CAP)",
     )
     p.add_argument(
         "--tickers",

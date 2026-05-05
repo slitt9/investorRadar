@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from datetime import datetime, timezone
 
@@ -18,6 +19,7 @@ from sec_engine import (
     normalize_sector,
 )
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
+from universe_sync import get_searchable_equity_tickers
 
 yf.config.network.retries = 3
 
@@ -39,6 +41,9 @@ def resolve_tickers(mode: str) -> list[str]:
         return sorted(mega)
     if mode == "popular":
         return list(POPULAR_TICKERS)
+    if mode in ("all", "equities", "extended"):
+        cap = int(os.environ.get("REFRESH_ALL_CAP", "2500"))
+        return get_searchable_equity_tickers(limit=cap)
     raise ValueError(f"Unknown universe mode: {mode}")
 
 
@@ -219,8 +224,14 @@ def main():
     p = argparse.ArgumentParser(description="Refresh fundamentals on stock_snapshot rows")
     p.add_argument(
         "--universe",
-        choices=("sp500", "mega", "popular"),
+        choices=("sp500", "mega", "popular", "all"),
         default="sp500",
+    )
+    p.add_argument(
+        "--max",
+        type=int,
+        default=None,
+        help="Process at most this many tickers (after resolve; use with --universe all)",
     )
     p.add_argument("--tickers", help="Comma-separated tickers (overrides --universe)")
     p.add_argument(
@@ -235,6 +246,8 @@ def main():
         tickers = [x.strip().upper() for x in args.tickers.split(",") if x.strip()]
     else:
         tickers = resolve_tickers(args.universe)
+    if args.max is not None:
+        tickers = tickers[: max(0, args.max)]
 
     print(refresh_fundamentals(tickers, yahoo_delay_s=args.yahoo_delay))
 

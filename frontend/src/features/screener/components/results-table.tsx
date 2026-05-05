@@ -65,6 +65,15 @@ export function ResultsTable({
         ),
       },
       {
+        header: "Sector",
+        accessorKey: "sector",
+        cell: ({ getValue }) => (
+          <div className="max-w-[100px] truncate text-xs text-muted">
+            {getValue<string>()}
+          </div>
+        ),
+      },
+      {
         header: "Price",
         accessorKey: "price",
         cell: ({ getValue }) => (
@@ -209,7 +218,7 @@ export function ResultsTable({
             {loading ? (
               Array.from({ length: 12 }).map((_, i) => (
                 <tr key={i} className="border-b border-border/20">
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 9 }).map((__, j) => (
                     <td key={j} className="px-4 py-3">
                       <Skeleton className="h-4 w-full" />
                     </td>
@@ -220,7 +229,7 @@ export function ResultsTable({
               <>
                 {paddingTop > 0 && (
                   <tr>
-                    <td style={{ height: paddingTop }} colSpan={8} />
+                    <td style={{ height: paddingTop }} colSpan={9} />
                   </tr>
                 )}
 
@@ -299,7 +308,7 @@ export function ResultsTable({
 
                 {paddingBottom > 0 && (
                   <tr>
-                    <td style={{ height: paddingBottom }} colSpan={8} />
+                    <td style={{ height: paddingBottom }} colSpan={9} />
                   </tr>
                 )}
               </>

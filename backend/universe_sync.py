@@ -369,6 +369,23 @@ def ensure_stock_universe_ready(*, stale_after_hours: int | None = None) -> dict
     }
 
 
+def get_searchable_equity_tickers(*, limit: int | None = None) -> list[str]:
+    """Tickers in stock_universe suitable for bulk quote / screener scans."""
+    ensure_schema()
+    sql = """
+        SELECT ticker FROM stock_universe
+        WHERE is_active = 1 AND is_searchable = 1
+        ORDER BY ticker
+    """
+    args: list = []
+    if limit is not None:
+        sql += " LIMIT ?"
+        args.append(int(limit))
+    with get_db() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [str(r["ticker"]) for r in rows]
+
+
 def search_stock_universe(query: str, *, limit: int = 20) -> list[dict[str, object]]:
     q = query.strip().upper()
     if not q:

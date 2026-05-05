@@ -82,10 +82,9 @@ def get_screener_results(
         price_max,
     )
 
-    placeholders = ",".join("?" * len(tickers))
-    where = [f"s.ticker IN ({placeholders})"]
+    where = ["s.ticker IN (SELECT ticker FROM _screener_universe_filter)"]
 
-    args: list = list(tickers)
+    args: list = []
 
     if sector and sector != "All":
         where.append("COALESCE(s.sector, 'N/A') = ?")
@@ -134,6 +133,14 @@ def get_screener_results(
 
     ensure_schema()
     with get_db() as conn:
+        conn.execute("DROP TABLE IF EXISTS _screener_universe_filter")
+        conn.execute(
+            "CREATE TEMP TABLE _screener_universe_filter (ticker TEXT PRIMARY KEY)"
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO _screener_universe_filter (ticker) VALUES (?)",
+            [(t,) for t in tickers],
+        )
         rows = conn.execute(sql, args).fetchall()
 
     out = []

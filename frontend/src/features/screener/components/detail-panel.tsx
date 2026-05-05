@@ -13,7 +13,7 @@ import { StockSparkline } from "./stock-sparkline";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHistory, useQuote, useSparkline } from "../api";
 import type { SeriesPoint } from "../types";
-import { ChevronLeft, ChevronRight, Star } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Star } from "lucide-react";
 import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
 function RangeBar({ low, high, value }: { low: number; high: number; value: number }) {
@@ -427,25 +427,61 @@ export function DetailPanel({
   open,
   onOpenChange,
   fullscreen,
+  onFullscreenChange,
 }: {
   ticker: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fullscreen?: boolean;
+  onFullscreenChange?: (full: boolean) => void;
 }) {
   const desktop = useMediaQuery("(min-width: 1280px)");
   if (!ticker) {
     return null;
   }
 
-  const content = (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-between">
+  const toolbar = (
+    <div className="sticky top-0 z-10 -mx-1 mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-border/30 bg-[rgb(var(--surface-1)/0.85)] px-1 py-2 backdrop-blur-md">
+      <div className="min-w-0">
         <div className="text-sm font-semibold tracking-tight">Details</div>
-        <div className="text-xs text-muted">{ticker}</div>
+        <div className="truncate text-xs text-muted">{ticker}</div>
       </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {desktop && open && onFullscreenChange ? (
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={() => onFullscreenChange(!fullscreen)}
+            aria-label={fullscreen ? "Exit expanded details" : "Expand details panel"}
+            title={fullscreen ? "Smaller panel" : "Large panel"}
+          >
+            {fullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+        ) : null}
+        {desktop && open ? (
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={() => onOpenChange(false)}
+            aria-label="Minimize details"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 
-      <Overview ticker={ticker} fullscreen={fullscreen} />
+  const content = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {toolbar}
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pr-1">
+        <Overview ticker={ticker} fullscreen={fullscreen} />
+      </div>
     </div>
   );
 
@@ -453,8 +489,26 @@ export function DetailPanel({
     if (fullscreen) {
       return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-          <DialogContent className="h-[calc(100vh-1.25rem)] w-[calc(100vw-1.25rem)] max-w-none overflow-auto p-4">
-            {content}
+          <DialogContent className="flex h-[calc(100vh-1.25rem)] w-[calc(100vw-1.25rem)] max-w-none flex-col gap-0 overflow-hidden p-4">
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-border/30 pb-2">
+              <div className="min-w-0 text-sm font-semibold tracking-tight">
+                {ticker}
+                <span className="ml-2 text-xs font-normal text-muted">Expanded</span>
+              </div>
+              {onFullscreenChange ? (
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] px-3 text-xs font-semibold text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground"
+                  onClick={() => onFullscreenChange(false)}
+                >
+                  <Minimize2 className="h-4 w-4" />
+                  Dock panel
+                </button>
+              ) : null}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+              <Overview ticker={ticker} fullscreen />
+            </div>
           </DialogContent>
         </Dialog>
       );
@@ -464,6 +518,7 @@ export function DetailPanel({
       return (
         <aside className="hidden w-[64px] shrink-0 border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] p-2 backdrop-blur-xl xl:flex xl:flex-col xl:items-center xl:justify-start">
           <button
+            type="button"
             className="mt-4 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
             onClick={() => onOpenChange(true)}
             aria-label="Restore details"
@@ -476,25 +531,26 @@ export function DetailPanel({
     }
 
     return (
-      <aside className="hidden w-[420px] shrink-0 border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] p-4 backdrop-blur-xl xl:block">
-        <div className="mb-3 flex justify-end">
-          <button
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={() => onOpenChange(false)}
-            aria-label="Minimize details"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+      <aside className="hidden h-full min-h-0 w-[420px] shrink-0 flex-col border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] backdrop-blur-xl xl:flex">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+          {content}
         </div>
-        {content}
       </aside>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(900px,calc(100vw-1.25rem))]">
-        {content}
+      <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(900px,calc(100vw-1.25rem))] flex-col gap-0 overflow-hidden p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold tracking-tight">Details</div>
+              <div className="text-xs text-muted">{ticker}</div>
+            </div>
+            <Overview ticker={ticker} fullscreen={false} />
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

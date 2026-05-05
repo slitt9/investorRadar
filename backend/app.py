@@ -24,6 +24,7 @@ from sec_engine import get_sp500_constituents
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import (
     ensure_stock_universe_ready,
+    get_searchable_equity_tickers,
     search_stock_universe,
     sync_stock_universe,
 )
@@ -100,7 +101,8 @@ def screener():
         except ValueError:
             return None
 
-    universe = request.args.get("universe", "sp500").strip().lower()
+    universe = request.args.get("universe", "all").strip().lower()
+    all_cap = int(os.environ.get("SCREENER_UNIVERSE_MAX", "4000"))
     q = request.args.get("q", "").strip().upper()
     sector = request.args.get("sector", "All").strip()
     dividends_only = request.args.get("dividends_only", "").strip().lower() in ("1", "true", "yes")
@@ -118,6 +120,9 @@ def screener():
             constituents = [c for c in constituents if c.get("ticker") in mega_set]
         scan_list = tuple(c["ticker"] for c in constituents)
         meta_source = "sp500"
+    elif universe in ("all", "equities", "extended"):
+        ensure_stock_universe_ready()
+        scan_list = tuple(get_searchable_equity_tickers(limit=all_cap))
     else:
         scan_list = POPULAR_TICKERS
 

@@ -47,7 +47,7 @@ export function FiltersPanel({
   return (
     <div
       className={cn(
-        "sticky top-16 self-start",
+        "sticky top-16 z-20 shrink-0 self-start",
         collapsed ? "w-[72px]" : "w-[320px]",
         className,
       )}
@@ -109,7 +109,8 @@ export function FiltersPanel({
                       />
                     </div>
                     <div className="mt-2 text-xs text-muted">
-                      Search reaches beyond the default screener universe.
+                      Matches any searchable US listing in the local DB. Run quote refresh (
+                      <span className="text-foreground">--universe all</span>) for broad coverage.
                     </div>
                   </div>
 

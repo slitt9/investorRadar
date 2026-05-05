@@ -2,7 +2,8 @@
 
 Intended for cron / Task Scheduler (~3x per US trading day).
 Environment:
-  REFRESH_UNIVERSE_MODE   sp500 | mega | popular (default: sp500)
+  REFRESH_UNIVERSE_MODE   sp500 | mega | popular | all (default: sp500)
+  REFRESH_ALL_CAP         max tickers when mode is all (default: 2500)
   SKIP_UNIVERSE_SYNC      set to 1 to skip listing sync
   FORCE_UNIVERSE_SYNC     set to 1 to force listing sync
 """

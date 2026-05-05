@@ -9,8 +9,7 @@ const UI_MAX_MARKET_CAP = 2_000_000_000_000;
 const UI_MAX_PE = 80;
 const UI_MAX_VOLUME = 100_000_000;
 const UI_MAX_PRICE = 600;
-const FAST_PATH_MARKET_CAP_MIN = 1_000_000_000_000;
-const QUERY_RESULT_LIMIT = 120;
+const QUERY_RESULT_LIMIT = 250;
 
 function isWideOpen(filters: ScreenerFilters) {
   return (
@@ -28,10 +27,11 @@ function isWideOpen(filters: ScreenerFilters) {
 }
 
 function isMegaCapFastPath(filters: ScreenerFilters) {
+  const megaMin = 1_000_000_000_000;
   return (
     filters.query.trim().length === 0 &&
     filters.sector === "All" &&
-    filters.marketCap[0] >= FAST_PATH_MARKET_CAP_MIN &&
+    filters.marketCap[0] >= megaMin &&
     filters.marketCap[1] >= UI_MAX_MARKET_CAP &&
     filters.pe[0] <= 0 &&
     filters.pe[1] >= UI_MAX_PE &&
@@ -43,10 +43,11 @@ function isMegaCapFastPath(filters: ScreenerFilters) {
 }
 
 function shouldAutoBroadenQuery(filters: ScreenerFilters) {
+  const megaMin = 1_000_000_000_000;
   return (
     filters.query.trim().length > 0 &&
     filters.sector === "All" &&
-    filters.marketCap[0] >= FAST_PATH_MARKET_CAP_MIN &&
+    filters.marketCap[0] >= megaMin &&
     filters.marketCap[1] >= UI_MAX_MARKET_CAP &&
     filters.pe[0] <= 0 &&
     filters.pe[1] >= UI_MAX_PE &&
@@ -62,7 +63,7 @@ async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
   const queryBroadening = shouldAutoBroadenQuery(filters);
   const marketCap = queryBroadening ? ([0, UI_MAX_MARKET_CAP] as [number, number]) : filters.marketCap;
   return apiGet<ScreenerRow[]>("/api/screener", {
-    universe: megaCapFastPath ? "mega" : "sp500",
+    universe: megaCapFastPath ? "mega" : "all",
     q: filters.query,
     sector: filters.sector,
     market_cap_min: marketCap[0],
@@ -73,7 +74,13 @@ async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
     volume_max: filters.volume[1],
     price_min: filters.price[0],
     price_max: filters.price[1],
-    limit: queryBroadening ? QUERY_RESULT_LIMIT : megaCapFastPath ? 60 : isWideOpen(filters) ? 180 : 120,
+    limit: queryBroadening
+      ? QUERY_RESULT_LIMIT
+      : megaCapFastPath
+        ? 60
+        : isWideOpen(filters)
+          ? 300
+          : QUERY_RESULT_LIMIT,
   });
 }
 
@@ -88,7 +95,7 @@ export function useScreenerFilters() {
   const initial: ScreenerFilters = React.useMemo(
     () => ({
       query: "",
-      marketCap: [FAST_PATH_MARKET_CAP_MIN, UI_MAX_MARKET_CAP],
+      marketCap: [0, UI_MAX_MARKET_CAP],
       pe: [0, UI_MAX_PE],
       volume: [0, UI_MAX_VOLUME],
       sector: "All",
