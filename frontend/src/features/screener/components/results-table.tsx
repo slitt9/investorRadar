@@ -44,7 +44,10 @@ export function ResultsTable({
   onRowDoubleClick?: (row: ScreenerRow) => void;
 }) {
   const watchlist = useWatchlist();
-  const columns = React.useMemo<ColumnDef<ScreenerRow>[]>(
+
+  type ColMeta = { cellClass?: string };
+
+  const columns = React.useMemo<ColumnDef<ScreenerRow, unknown>[]>(
     () => [
       {
         header: "Ticker",
@@ -56,19 +59,10 @@ export function ResultsTable({
         ),
       },
       {
-        header: "Company Name",
+        header: "Company",
         accessorKey: "company_name",
         cell: ({ getValue }) => (
-          <div className="max-w-[240px] truncate text-sm">
-            {getValue<string>()}
-          </div>
-        ),
-      },
-      {
-        header: "Sector",
-        accessorKey: "sector",
-        cell: ({ getValue }) => (
-          <div className="max-w-[100px] truncate text-xs text-muted">
+          <div className="max-w-[min(28vw,240px)] truncate text-sm">
             {getValue<string>()}
           </div>
         ),
@@ -86,22 +80,13 @@ export function ResultsTable({
         cell: ({ getValue }) => <ChangeCell value={getValue<number>()} />,
       },
       {
-        header: "Volume",
-        accessorKey: "volume",
-        cell: ({ getValue }) => (
-          <div className="tabular-nums">
-            {formatCompactNumber(getValue<number>())}
-          </div>
-        ),
-      },
-      {
         header: "Market Cap",
         accessorKey: "market_cap",
         cell: ({ getValue }) => {
           const v = getValue<number | null>();
           return (
             <div className="tabular-nums">
-              {typeof v === "number" ? formatCompactNumber(v) : "—"}
+              {typeof v === "number" && Number.isFinite(v) ? formatCompactNumber(v) : "—"}
             </div>
           );
         },
@@ -113,10 +98,31 @@ export function ResultsTable({
           const v = getValue<number | null>();
           return (
             <div className="tabular-nums">
-              {typeof v === "number" ? Number(v).toFixed(2) : "—"}
+              {typeof v === "number" && Number.isFinite(v) ? Number(v).toFixed(2) : "—"}
             </div>
           );
         },
+      },
+      {
+        header: "Sector",
+        accessorKey: "sector",
+        cell: ({ getValue }) => {
+          const raw = getValue<string | null | undefined>();
+          const s = raw == null || raw === "" || raw === "N/A" ? null : raw;
+          return (
+            <div className="max-w-[min(22vw,140px)] truncate text-xs text-muted">
+              {s ?? "—"}
+            </div>
+          );
+        },
+      },
+      {
+        header: "Volume",
+        accessorKey: "volume",
+        meta: { cellClass: "hidden xl:table-cell" } satisfies ColMeta,
+        cell: ({ getValue }) => (
+          <div className="tabular-nums">{formatCompactNumber(getValue<number>())}</div>
+        ),
       },
     ],
     [],
@@ -181,6 +187,7 @@ export function ResultsTable({
                       className={cn(
                         "px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted",
                         canSort && "cursor-pointer select-none hover:text-foreground",
+                        (header.column.columnDef.meta as ColMeta | undefined)?.cellClass,
                       )}
                       onClick={
                         canSort ? header.column.getToggleSortingHandler() : undefined
@@ -260,7 +267,13 @@ export function ResultsTable({
                       }}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-4 py-3">
+                        <td
+                          key={cell.id}
+                          className={cn(
+                            "px-4 py-3",
+                            (cell.column.columnDef.meta as ColMeta | undefined)?.cellClass,
+                          )}
+                        >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}

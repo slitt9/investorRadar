@@ -23,8 +23,8 @@ export type ScreenerRow = {
   volume: number;
   market_cap: number | null;
   pe_ratio: number | null;
-  sector: string;
-  industry: string;
+  sector: string | null;
+  industry: string | null;
   dividend_yield: number | null;
   fifty_two_week_high: number | null;
   fifty_two_week_low: number | null;

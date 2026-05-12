@@ -6,14 +6,14 @@ import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnimatedNumber } from "@/components/animated-number";
 import { cn } from "@/lib/cn";
 import { formatCompactNumber, formatPercent, formatUsd } from "@/lib/format";
 import { StockSparkline } from "./stock-sparkline";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHistory, useQuote, useSparkline } from "../api";
 import type { SeriesPoint } from "../types";
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Star } from "lucide-react";
+import { Maximize2, Star, X } from "lucide-react";
 import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
 function RangeBar({ low, high, value }: { low: number; high: number; value: number }) {
@@ -112,7 +112,15 @@ function formatXAxisLabel(tf: "1W" | "1M" | "1Y" | "MAX", raw: string) {
   return new Intl.DateTimeFormat("en-US", opts).format(d);
 }
 
-function Overview({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean }) {
+function Overview({
+  ticker,
+  fullscreen,
+  variant = "full",
+}: {
+  ticker: string;
+  fullscreen?: boolean;
+  variant?: "full" | "overview-only" | "financials-only";
+}) {
   const quote = useQuote(ticker);
   const sparkline = useSparkline(ticker);
   const watchlist = useWatchlist();
@@ -146,180 +154,195 @@ function Overview({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean
     .join(" • ");
   const showCompany = hasOverviewLabel(m.company_name);
 
-  return (
-    <div className="grid gap-3">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs text-muted">Overview</div>
-              <div className="mt-1 flex flex-wrap items-center gap-3">
-                <div className="text-2xl font-semibold tracking-tight">{m.ticker}</div>
-                {sectorIndustry ? (
-                  <Badge variant="info">{sectorIndustry}</Badge>
-                ) : null}
-                <button
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-                  onClick={() => watchlist.toggle(m.ticker)}
-                  aria-label={watched ? "Remove from favorites" : "Add to favorites"}
-                >
-                  <Star
-                    className={cn(
-                      "h-4 w-4",
-                      watched &&
-                        "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
-                    )}
-                  />
-                </button>
-              </div>
-              {showCompany ? (
-                <div className="mt-1 text-sm text-muted">{m.company_name}</div>
+  const overviewCard = (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs text-muted">Overview</div>
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <div className="text-2xl font-semibold tracking-tight">{m.ticker}</div>
+              {sectorIndustry ? (
+                <Badge variant="info">{sectorIndustry}</Badge>
               ) : null}
-              <div className="mt-2 flex items-baseline gap-3">
-                <AnimatedNumber
-                  value={m.price}
-                  format={(n) => formatUsd(n, { maximumFractionDigits: 2 })}
-                  className="text-xl font-semibold tabular-nums"
-                />
-                <div
+              <button
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+                onClick={() => watchlist.toggle(m.ticker)}
+                aria-label={watched ? "Remove from favorites" : "Add to favorites"}
+              >
+                <Star
                   className={cn(
-                    "text-sm font-semibold tabular-nums",
-                    up ? "text-emerald" : "text-rose",
+                    "h-4 w-4",
+                    watched &&
+                      "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
                   )}
-                >
-                  {up ? "+" : ""}
-                  {Number(m.pct_change ?? 0).toFixed(2)}%
-                </div>
+                />
+              </button>
+            </div>
+            {showCompany ? (
+              <div className="mt-1 text-sm text-muted">{m.company_name}</div>
+            ) : null}
+            <div className="mt-2 flex items-baseline gap-3">
+              <AnimatedNumber
+                value={m.price}
+                format={(n) => formatUsd(n, { maximumFractionDigits: 2 })}
+                className="text-xl font-semibold tabular-nums"
+              />
+              <div
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  up ? "text-emerald" : "text-rose",
+                )}
+              >
+                {up ? "+" : ""}
+                {Number(m.pct_change ?? 0).toFixed(2)}%
               </div>
             </div>
-            {series.length > 0 ? (
-              <StockSparkline
-                data={series}
-                color={up ? "rgb(var(--emerald))" : "rgb(var(--rose))"}
-              />
-            ) : (
-              <div className="h-10 w-[140px] rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)]" />
-            )}
           </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-2 gap-2">
-            <BentoStat
-              label="Radar Pulse"
-              value={m.radar_pulse != null ? `${m.radar_pulse}/100` : "—"}
+          {series.length > 0 ? (
+            <StockSparkline
+              data={series}
+              color={up ? "rgb(var(--emerald))" : "rgb(var(--rose))"}
             />
-            <BentoStat
-              label="Market Cap"
-              value={m.market_cap ? formatCompactNumber(m.market_cap) : "—"}
-            />
-            <BentoStat
-              label="Volume"
-              value={m.volume ? formatCompactNumber(m.volume) : "—"}
-            />
-            <BentoStat label="P/E" value={m.pe_ratio ? m.pe_ratio.toFixed(2) : "—"} />
-            <BentoStat
-              label="Dividend Yield"
-              value={
-                m.dividend_yield != null
-                  ? formatPercent(m.dividend_yield, { maximumFractionDigits: 2 })
-                  : "—"
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
+          ) : (
+            <div className="h-10 w-[140px] rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)]" />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-2 gap-2">
+          <BentoStat
+            label="Radar Pulse"
+            value={m.radar_pulse != null ? `${m.radar_pulse}/100` : "—"}
+          />
+          <BentoStat
+            label="Market Cap"
+            value={m.market_cap ? formatCompactNumber(m.market_cap) : "—"}
+          />
+          <BentoStat
+            label="Volume"
+            value={m.volume ? formatCompactNumber(m.volume) : "—"}
+          />
+          <BentoStat label="P/E" value={m.pe_ratio ? m.pe_ratio.toFixed(2) : "—"} />
+          <BentoStat
+            label="Dividend Yield"
+            value={
+              m.dividend_yield != null
+                ? formatPercent(m.dividend_yield, { maximumFractionDigits: 2 })
+                : "—"
+            }
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
 
-      <Chart ticker={ticker} fullscreen={fullscreen} />
-
-      <motion.div whileHover={{ scale: 1.01 }} transition={{ duration: 0.18 }}>
-        <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Valuation</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                <BentoStat label="P/S" value={m.ps_ratio != null ? m.ps_ratio.toFixed(2) : "—"} />
-                <BentoStat
-                  label="EV"
-                  value={m.enterprise_value ? formatCompactNumber(m.enterprise_value) : "—"}
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Efficiency</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                <BentoStat
-                  label="ROE"
-                  value={m.roe != null ? formatPercent(m.roe) : "—"}
-                />
-                <BentoStat
-                  label="Margin"
-                  value={m.profit_margin != null ? formatPercent(m.profit_margin) : "—"}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
+  const financialsBlock = (
+    <motion.div whileHover={{ scale: 1.01 }} transition={{ duration: 0.18 }}>
+      <div className="grid gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Card>
             <CardHeader>
-              <CardTitle>Company Stats</CardTitle>
+              <CardTitle>Valuation</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              <div className="grid grid-cols-2 gap-2">
-                <BentoStat
-                  label="Rev Growth (QoQ)"
-                  value={
-                    m.quarterly_revenue_growth != null
-                      ? `${m.quarterly_revenue_growth.toFixed(2)}%`
-                      : "—"
-                  }
-                />
-                <BentoStat
-                  label="Debt (Liabilities)"
-                  value={m.liabilities ? formatCompactNumber(m.liabilities) : "—"}
-                />
-                <BentoStat
-                  label="Assets"
-                  value={m.assets ? formatCompactNumber(m.assets) : "—"}
-                />
-                <BentoStat
-                  label="Net Balance"
-                  value={m.equity ? formatCompactNumber(m.equity) : "—"}
-                />
-              </div>
+              <BentoStat label="P/S" value={m.ps_ratio != null ? m.ps_ratio.toFixed(2) : "—"} />
+              <BentoStat
+                label="EV"
+                value={m.enterprise_value ? formatCompactNumber(m.enterprise_value) : "—"}
+              />
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
-              <CardTitle>52W Range</CardTitle>
+              <CardTitle>Efficiency</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between text-xs text-muted">
-                <span>
-                  {m.fifty_two_week_low != null ? formatUsd(m.fifty_two_week_low) : "—"}
-                </span>
-                <span>
-                  {m.fifty_two_week_high != null ? formatUsd(m.fifty_two_week_high) : "—"}
-                </span>
-              </div>
-              {m.fifty_two_week_low != null && m.fifty_two_week_high != null ? (
-                <RangeBar low={m.fifty_two_week_low} high={m.fifty_two_week_high} value={m.price} />
-              ) : (
-                <div className="mt-2 h-2 w-full rounded-full bg-[rgb(var(--surface-2)/0.65)]" />
-              )}
+            <CardContent className="grid gap-2">
+              <BentoStat
+                label="ROE"
+                value={m.roe != null ? formatPercent(m.roe) : "—"}
+              />
+              <BentoStat
+                label="Margin"
+                value={m.profit_margin != null ? formatPercent(m.profit_margin) : "—"}
+              />
             </CardContent>
           </Card>
         </div>
-      </motion.div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Company Stats</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <BentoStat
+                label="Rev Growth (QoQ)"
+                value={
+                  m.quarterly_revenue_growth != null
+                    ? `${m.quarterly_revenue_growth.toFixed(2)}%`
+                    : "—"
+                }
+              />
+              <BentoStat
+                label="Debt (Liabilities)"
+                value={m.liabilities ? formatCompactNumber(m.liabilities) : "—"}
+              />
+              <BentoStat
+                label="Assets"
+                value={m.assets ? formatCompactNumber(m.assets) : "—"}
+              />
+              <BentoStat
+                label="Net Balance"
+                value={m.equity ? formatCompactNumber(m.equity) : "—"}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>52W Range</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span>
+                {m.fifty_two_week_low != null ? formatUsd(m.fifty_two_week_low) : "—"}
+              </span>
+              <span>
+                {m.fifty_two_week_high != null ? formatUsd(m.fifty_two_week_high) : "—"}
+              </span>
+            </div>
+            {m.fifty_two_week_low != null && m.fifty_two_week_high != null ? (
+              <RangeBar low={m.fifty_two_week_low} high={m.fifty_two_week_high} value={m.price} />
+            ) : (
+              <div className="mt-2 h-2 w-full rounded-full bg-[rgb(var(--surface-2)/0.65)]" />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </motion.div>
+  );
+
+  if (variant === "overview-only") {
+    return <div className="grid gap-2">{overviewCard}</div>;
+  }
+  if (variant === "financials-only") {
+    return <div className="grid gap-2 overflow-hidden">{financialsBlock}</div>;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {overviewCard}
+
+      <Chart ticker={ticker} chartHeightClass={fullscreen ? "h-[460px]" : "h-[260px]"} />
+
+      {financialsBlock}
     </div>
   );
 }
 
-function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean }) {
+function Chart({ ticker, chartHeightClass = "h-[260px]" }: { ticker: string; chartHeightClass?: string }) {
   const [tf, setTf] = React.useState<"1W" | "1M" | "1Y" | "MAX">("1M");
   const quote = useQuote(ticker);
   const up = (quote.data?.pct_change ?? 0) >= 0;
@@ -337,6 +360,7 @@ function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean })
   const history = useHistory(ticker, params);
   const chartData = (history.data ?? []).map((d) => ({ t: d.Date, v: d.Close }));
 
+  const gid = React.useId().replace(/:/g, "");
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-between">
@@ -362,7 +386,7 @@ function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean })
       <div
         className={cn(
           "rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-3 backdrop-blur",
-          fullscreen ? "h-[460px]" : "h-[260px]",
+          chartHeightClass,
         )}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -371,7 +395,7 @@ function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean })
             margin={{ left: 8, right: 12, top: 8, bottom: 8 }}
           >
             <defs>
-              <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={`fill-${gid}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
                 <stop offset="100%" stopColor={stroke} stopOpacity={0.02} />
               </linearGradient>
@@ -406,7 +430,7 @@ function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean })
               type="monotone"
               dataKey="v"
               stroke={stroke}
-              fill="url(#fill)"
+              fill={`url(#fill-${gid})`}
               fillOpacity={1}
               isAnimationActive
               animationDuration={240}
@@ -422,134 +446,102 @@ function Chart({ ticker, fullscreen }: { ticker: string; fullscreen?: boolean })
   );
 }
 
-export function DetailPanel({
+export function ScreenerDetailInline({
+  ticker,
+  onClose,
+  onExpand,
+}: {
+  ticker: string;
+  onClose: () => void;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.45)] p-3 shadow-[0_12px_40px_rgb(0_0_0/0.2)] backdrop-blur">
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <div className="min-w-0 text-sm font-semibold tracking-tight">{ticker}</div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={onExpand}
+            aria-label="Open full details"
+            title="Full details"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            onClick={onClose}
+            aria-label="Close details"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <TabsList className="h-9 shrink-0 justify-start">
+          <TabsTrigger value="overview" className="text-xs">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="chart" className="text-xs">
+            Chart
+          </TabsTrigger>
+          <TabsTrigger value="financials" className="text-xs">
+            Financials
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent
+          value="overview"
+          className="mt-2 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+        >
+          <Overview ticker={ticker} variant="overview-only" fullscreen={false} />
+        </TabsContent>
+        <TabsContent
+          value="chart"
+          className="mt-2 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+        >
+          <Chart ticker={ticker} chartHeightClass="h-[min(200px,28vh)]" />
+        </TabsContent>
+        <TabsContent
+          value="financials"
+          className="mt-2 min-h-0 max-h-[min(36vh,320px)] flex-1 overflow-y-auto overflow-x-hidden data-[state=inactive]:hidden"
+        >
+          <Overview ticker={ticker} variant="financials-only" fullscreen={false} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+export function ScreenerDetailDialog({
   ticker,
   open,
   onOpenChange,
-  fullscreen,
-  onFullscreenChange,
 }: {
   ticker: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  fullscreen?: boolean;
-  onFullscreenChange?: (full: boolean) => void;
 }) {
-  const desktop = useMediaQuery("(min-width: 1280px)");
   if (!ticker) {
     return null;
   }
-
-  const toolbar = (
-    <div className="sticky top-0 z-10 -mx-1 mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-border/30 bg-[rgb(var(--surface-1)/0.85)] px-1 py-2 backdrop-blur-md">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold tracking-tight">Details</div>
-        <div className="truncate text-xs text-muted">{ticker}</div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {desktop && open && onFullscreenChange ? (
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={() => onFullscreenChange(!fullscreen)}
-            aria-label={fullscreen ? "Exit expanded details" : "Expand details panel"}
-            title={fullscreen ? "Smaller panel" : "Large panel"}
-          >
-            {fullscreen ? (
-              <Minimize2 className="h-4 w-4" />
-            ) : (
-              <Maximize2 className="h-4 w-4" />
-            )}
-          </button>
-        ) : null}
-        {desktop && open ? (
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={() => onOpenChange(false)}
-            aria-label="Minimize details"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-
-  const content = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {toolbar}
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pr-1">
-        <Overview ticker={ticker} fullscreen={fullscreen} />
-      </div>
-    </div>
-  );
-
-  if (desktop) {
-    if (fullscreen) {
-      return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-          <DialogContent className="flex h-[calc(100vh-1.25rem)] w-[calc(100vw-1.25rem)] max-w-none flex-col gap-0 overflow-hidden p-4">
-            <div className="mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-border/30 pb-2">
-              <div className="min-w-0 text-sm font-semibold tracking-tight">
-                {ticker}
-                <span className="ml-2 text-xs font-normal text-muted">Expanded</span>
-              </div>
-              {onFullscreenChange ? (
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] px-3 text-xs font-semibold text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground"
-                  onClick={() => onFullscreenChange(false)}
-                >
-                  <Minimize2 className="h-4 w-4" />
-                  Dock panel
-                </button>
-              ) : null}
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
-              <Overview ticker={ticker} fullscreen />
-            </div>
-          </DialogContent>
-        </Dialog>
-      );
-    }
-
-    if (!open) {
-      return (
-        <aside className="hidden w-[64px] shrink-0 border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] p-2 backdrop-blur-xl xl:flex xl:flex-col xl:items-center xl:justify-start">
-          <button
-            type="button"
-            className="mt-4 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={() => onOpenChange(true)}
-            aria-label="Restore details"
-            title={ticker}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        </aside>
-      );
-    }
-
-    return (
-      <aside className="hidden h-full min-h-0 w-[420px] shrink-0 flex-col border-l border-border/40 bg-[rgb(var(--surface-1)/0.25)] backdrop-blur-xl xl:flex">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
-          {content}
-        </div>
-      </aside>
-    );
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(92vh,calc(100vh-2rem))] w-[min(900px,calc(100vw-1.25rem))] flex-col gap-0 overflow-hidden p-4">
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
-          <div className="grid gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold tracking-tight">Details</div>
-              <div className="text-xs text-muted">{ticker}</div>
-            </div>
-            <Overview ticker={ticker} fullscreen={false} />
-          </div>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[min(960px,calc(100vw-1.5rem))] flex-col gap-0 overflow-hidden border-border/40 p-0">
+        <div className="flex shrink-0 items-center justify-between border-b border-border/30 px-4 py-3">
+          <div className="text-sm font-semibold tracking-tight">{ticker}</div>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-[calc(100vh-6rem)] overflow-y-auto p-4">
+          <Overview ticker={ticker} variant="full" fullscreen />
         </div>
       </DialogContent>
     </Dialog>

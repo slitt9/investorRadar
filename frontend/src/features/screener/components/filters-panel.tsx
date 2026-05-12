@@ -47,7 +47,7 @@ export function FiltersPanel({
   return (
     <div
       className={cn(
-        "sticky top-16 z-20 shrink-0 self-start",
+        "z-10 shrink-0 self-start",
         collapsed ? "w-[84px]" : "w-[320px]",
         className,
       )}
@@ -123,10 +123,6 @@ export function FiltersPanel({
                         placeholder="Ticker or company (e.g., AAPL, Tesla)"
                         aria-label="Search ticker or company"
                       />
-                    </div>
-                    <div className="mt-2 text-xs text-muted">
-                      Matches any searchable US listing in the local DB. Run quote refresh (
-                      <span className="text-foreground">--universe all</span>) for broad coverage.
                     </div>
                   </div>
 

@@ -4,12 +4,14 @@ import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { FiltersPanel } from "@/features/screener/components/filters-panel";
 import { ResultsTable } from "@/features/screener/components/results-table";
-import { DetailPanel } from "@/features/screener/components/detail-panel";
+import {
+  ScreenerDetailDialog,
+  ScreenerDetailInline,
+} from "@/features/screener/components/detail-panel";
 import { MobileFilters } from "@/features/screener/components/mobile-filters";
 import { useScreenerFilters, useScreenerResults } from "@/features/screener/use-screener";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 export function ScreenerView() {
   const { draft, setDraft, applied, apply, reset } = useScreenerFilters();
@@ -39,7 +41,7 @@ export function ScreenerView() {
   const loading = isLoading || isFetching;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full items-stretch gap-3 overflow-hidden pr-1 lg:pr-2">
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full gap-3 overflow-hidden pr-1 lg:pr-2">
       <FiltersPanel
         value={draft}
         onChange={setDraft}
@@ -50,48 +52,25 @@ export function ScreenerView() {
         className="hidden lg:block"
       />
 
-      <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 lg:p-6">
-        <div className="mb-4 flex items-end justify-between gap-3">
+      <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden p-4 lg:p-6">
+        <div className="mb-3 flex shrink-0 flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs text-muted">Screener</div>
-            <div className="mt-1 text-2xl font-semibold tracking-tight">
+            <div className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
               Find opportunities, fast.
             </div>
-            <div className="mt-2 max-w-[60ch] text-sm text-muted">
-              Sort every column, collapse panels, and drill into bento-style fundamentals.
+            <div className="mt-1 hidden max-w-[52ch] text-sm text-muted sm:block">
+              Sort columns and drill into fundamentals below the table.
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <MobileFilters value={draft} onChange={setDraft} onApply={apply} onReset={reset} />
-            <div className="hidden w-[320px] md:block">
-              <Input
-                value={draft.query}
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, query: e.target.value }))
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") apply();
-                }}
-                placeholder="Search ticker or company…"
-                aria-label="Search ticker or company"
-              />
-            </div>
             {hasDraftChanges && (
               <>
-                <Button
-                  variant="subtle"
-                  size="sm"
-                  className="hidden md:inline-flex"
-                  onClick={reset}
-                >
+                <Button variant="subtle" size="sm" className="hidden md:inline-flex" onClick={reset}>
                   Reset
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="hidden md:inline-flex"
-                  onClick={apply}
-                >
+                <Button variant="primary" size="sm" className="hidden md:inline-flex" onClick={apply}>
                   Apply Changes
                 </Button>
               </>
@@ -107,7 +86,7 @@ export function ScreenerView() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 overflow-hidden">
           {results.isError && (
             <div className="mb-3 rounded-2xl border border-[rgb(var(--rose)/0.35)] bg-[rgb(var(--rose)/0.10)] p-4 text-sm">
               <div className="font-semibold tracking-tight">Backend unreachable</div>
@@ -146,17 +125,30 @@ export function ScreenerView() {
             }}
           />
         </div>
+
+        {selectedTicker && detailOpen && !fullscreen ? (
+          <div className="mt-3 max-h-[min(42vh,420px)] min-h-[200px] shrink-0 overflow-hidden">
+            <ScreenerDetailInline
+              ticker={selectedTicker}
+              onClose={() => {
+                setDetailOpen(false);
+                setSelectedTicker(null);
+              }}
+              onExpand={() => setFullscreen(true)}
+            />
+          </div>
+        ) : null}
       </section>
 
-      <DetailPanel
+      <ScreenerDetailDialog
         ticker={selectedTicker}
-        open={detailOpen}
+        open={Boolean(selectedTicker && fullscreen)}
         onOpenChange={(o) => {
-          setDetailOpen(o);
-          if (!o) setFullscreen(false);
+          setFullscreen(o);
+          if (!o) {
+            setDetailOpen(true);
+          }
         }}
-        fullscreen={fullscreen}
-        onFullscreenChange={setFullscreen}
       />
     </div>
   );

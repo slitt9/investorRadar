@@ -87,8 +87,13 @@ def get_screener_results(
     args: list = []
 
     if sector and sector != "All":
-        where.append("COALESCE(s.sector, 'N/A') = ?")
-        args.append(sector)
+        if sector == "Other":
+            where.append(
+                "(s.sector = 'Other' OR s.sector IS NULL OR TRIM(COALESCE(s.sector,'')) = '' OR s.sector = 'N/A')"
+            )
+        else:
+            where.append("s.sector = ?")
+            args.append(sector)
 
     if dividends_only:
         where.append("COALESCE(s.dividend_yield, 0) > 0")
@@ -116,8 +121,8 @@ def get_screener_results(
             s.volume AS volume,
             s.market_cap AS market_cap,
             s.pe_ratio AS pe_ratio,
-            COALESCE(s.sector, 'N/A') AS sector,
-            COALESCE(s.industry, 'N/A') AS industry,
+            s.sector AS sector,
+            s.industry AS industry,
             s.dividend_yield AS dividend_yield,
             s.fifty_two_week_high AS fifty_two_week_high,
             s.fifty_two_week_low AS fifty_two_week_low,

@@ -19,7 +19,10 @@ from metrics import (
     get_sector_performance,
     get_news,
 )
+from db import get_db
+from refresh_quotes import refresh_quotes
 from screener_db import get_screener_results
+from screener_hydrate import hydrate_screener_rows
 from sec_engine import get_sp500_constituents
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import (
@@ -79,6 +82,24 @@ def movers():
     return jsonify(data)
 
 
+def _tickers_missing_snapshot_price(scan_list: tuple[str, ...], *, max_fix: int) -> list[str]:
+    """First N tickers in scan_list with no priced row in stock_snapshot."""
+    if not scan_list:
+        return []
+    out: list[str] = []
+    with get_db() as conn:
+        for t in scan_list:
+            if len(out) >= max_fix:
+                break
+            row = conn.execute(
+                "SELECT 1 FROM stock_snapshot WHERE ticker = ? AND price IS NOT NULL",
+                (t,),
+            ).fetchone()
+            if not row:
+                out.append(t)
+    return out
+
+
 @app.route("/api/screener")
 def screener():
     """Returns screener rows for a bounded universe.
@@ -126,6 +147,14 @@ def screener():
     else:
         scan_list = POPULAR_TICKERS
 
+    if q and os.environ.get("SCREENER_ON_DEMAND_QUOTES", "1").lower() in ("1", "true", "yes"):
+        missing = _tickers_missing_snapshot_price(scan_list, max_fix=20)
+        if missing:
+            try:
+                refresh_quotes(missing)
+            except Exception:
+                pass
+
     rows = get_screener_results(
         tickers=scan_list,
         market_cap_min=f("market_cap_min"),
@@ -144,6 +173,7 @@ def screener():
 
     # Default sort: pct_change desc (matches UI default).
     rows.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
+    rows = hydrate_screener_rows(rows)
     return jsonify(rows)
 
 
