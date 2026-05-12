@@ -27,6 +27,8 @@ API base URL defaults to `http://localhost:5000`.
 | `UNIVERSE_STALE_HOURS` | Re-sync Nasdaq/SEC listing data if older than this many hours (default: `72`) |
 | `SCREENER_UNIVERSE_MAX` | Max tickers when API `universe=all` (default: `4000`) |
 | `REFRESH_ALL_CAP` | Max tickers for `refresh_* --universe all` (default: `2500`) |
+| `QUOTE_REFRESH_SKIP_VALUATION` | Set `1` to skip cap/P/E enrichment during `refresh_quotes` (default: enrich on) |
+| `QUOTE_VALUATION_SLEEP` | Seconds between per-ticker valuation calls (default: `0.08`) |
 | `PORT` | Flask listen port (default: `5000`) |
 | `FLASK_USE_RELOADER` | On Windows, set `1` to enable the debug reloader (can be unstable). |
 
@@ -46,6 +48,8 @@ API base URL defaults to `http://localhost:5000`.
    python refresh_quotes.py --universe sp500
    python refresh_fundamentals.py --universe sp500
    ```
+
+   `refresh_quotes` also fills **market cap** (Yahoo `fast_info`) and **P/E** (price ÷ SEC diluted EPS when available) so the grid shows cap/P/E closer to the detail view. Use `--no-valuation` or `QUOTE_REFRESH_SKIP_VALUATION=1` to skip that (faster).
 
    Broader US listings (thousands of tickers; longer runs):
 

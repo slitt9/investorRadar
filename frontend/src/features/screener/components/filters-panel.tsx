@@ -48,15 +48,27 @@ export function FiltersPanel({
     <div
       className={cn(
         "sticky top-16 z-20 shrink-0 self-start",
-        collapsed ? "w-[72px]" : "w-[320px]",
+        collapsed ? "w-[84px]" : "w-[320px]",
         className,
       )}
     >
-      <div className="h-[calc(100vh-4rem)] p-4">
+      <div
+        className={cn(
+          "h-[calc(100vh-4rem)]",
+          collapsed ? "px-1 py-4" : "p-4",
+        )}
+      >
         <Card className="h-full overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3">
+          <div
+            className={cn(
+              "flex py-3",
+              collapsed
+                ? "flex-col items-center gap-2 px-1"
+                : "items-center justify-between px-4",
+            )}
+          >
             <div className="flex items-center gap-2">
-              <div className="grid h-9 w-9 place-items-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)]">
                 <SlidersHorizontal className="h-4 w-4" />
               </div>
               {!collapsed && (
@@ -76,7 +88,7 @@ export function FiltersPanel({
               size="icon"
               onClick={onToggleCollapsed}
               aria-label={collapsed ? "Expand filters" : "Collapse filters"}
-              className={cn("transition-transform", collapsed && "rotate-180")}
+              className={cn("shrink-0", collapsed && "rotate-180")}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -85,11 +97,15 @@ export function FiltersPanel({
           <Separator />
 
           {collapsed ? (
-            <div className="p-3 text-xs text-muted">
-              <div className="rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)] p-3 text-center">
-                Open
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="w-full p-2 text-left text-xs text-muted outline-none transition-colors hover:bg-[rgb(var(--surface-2)/0.20)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
+            >
+              <div className="rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)] p-2 text-center font-medium text-foreground">
+                Open filters
               </div>
-            </div>
+            </button>
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto p-4">

@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 from db import ensure_schema, get_db
-from sec_engine import get_sp500_constituents
+from sec_engine import (
+    extract_latest_sec_fact,
+    get_cik_for_ticker,
+    get_sec_facts,
+    get_sp500_constituents,
+)
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import get_searchable_equity_tickers
 
@@ -70,6 +75,58 @@ def _download_chunk(symbols: list[str]) -> dict[str, tuple[float, float, float, 
     return out
 
 
+def _enrich_market_cap_and_pe(
+    conn,
+    ticker: str,
+    *,
+    valuation_sleep_s: float,
+) -> None:
+    """Fill market_cap (Yahoo fast_info) and pe_ratio (price / SEC EPS) on snapshot rows."""
+    time.sleep(valuation_sleep_s)
+    row = conn.execute(
+        "SELECT price FROM stock_snapshot WHERE ticker = ?",
+        (ticker,),
+    ).fetchone()
+    if not row or row["price"] is None:
+        return
+    price = float(row["price"])
+    mcap = None
+    pe = None
+    try:
+        cap = yf.Ticker(ticker).fast_info.get("marketCap")
+        if cap is not None:
+            mcap = float(cap)
+    except Exception:
+        pass
+    try:
+        cik = get_cik_for_ticker(ticker)
+        if cik:
+            facts = get_sec_facts(cik)
+            if facts:
+                eps = extract_latest_sec_fact(
+                    facts, "EarningsPerShareDiluted", unit="USD/shares"
+                )
+                if eps is None:
+                    eps = extract_latest_sec_fact(
+                        facts, "EarningsPerShareBasic", unit="USD/shares"
+                    )
+                if eps is not None and float(eps) > 0:
+                    pe = round(price / float(eps), 2)
+    except Exception:
+        pass
+    if mcap is None and pe is None:
+        return
+    conn.execute(
+        """
+        UPDATE stock_snapshot SET
+            market_cap = COALESCE(?, market_cap),
+            pe_ratio = COALESCE(?, pe_ratio)
+        WHERE ticker = ?
+        """,
+        (mcap, pe, ticker),
+    )
+
+
 def resolve_tickers(mode: str) -> list[str]:
     mode = mode.strip().lower()
     if mode == "sp500":
@@ -94,6 +151,8 @@ def refresh_quotes(
     *,
     chunk_size: int = 40,
     sleep_s: float = 0.2,
+    enrich_valuation: bool | None = None,
+    valuation_sleep_s: float | None = None,
 ) -> dict:
     """Upsert quote fields on stock_snapshot for each ticker."""
     ensure_schema()
@@ -124,6 +183,15 @@ def refresh_quotes(
             volume = excluded.volume
     """
 
+    if enrich_valuation is None:
+        enrich_valuation = os.environ.get("QUOTE_REFRESH_SKIP_VALUATION", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+    if valuation_sleep_s is None:
+        valuation_sleep_s = float(os.environ.get("QUOTE_VALUATION_SLEEP", "0.08"))
+
     n = 0
     with get_db() as conn:
         for t, (close, prev, pct, vol) in snapshots.items():
@@ -132,6 +200,9 @@ def refresh_quotes(
                 (t, as_of, close, prev, round(pct, 2), vol),
             )
             n += 1
+        if enrich_valuation and snapshots:
+            for t in sorted(snapshots.keys()):
+                _enrich_market_cap_and_pe(conn, t, valuation_sleep_s=valuation_sleep_s)
         conn.execute(
             """
             INSERT INTO app_meta (key, value, updated_at)
@@ -158,6 +229,11 @@ def main():
         "--tickers",
         help="Comma-separated tickers (overrides --universe)",
     )
+    p.add_argument(
+        "--no-valuation",
+        action="store_true",
+        help="Skip Yahoo market cap + SEC P/E enrichment (faster; grid may show — for cap/P/E)",
+    )
     args = p.parse_args()
 
     if args.tickers:
@@ -165,7 +241,7 @@ def main():
     else:
         tickers = resolve_tickers(args.universe)
 
-    result = refresh_quotes(tickers)
+    result = refresh_quotes(tickers, enrich_valuation=not args.no_valuation)
     print(result)
 
 
