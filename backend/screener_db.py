@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from db import ensure_schema, get_db
+from sec_engine import get_sp500_constituents
 
 
 def _normalize_ui_ranges(
@@ -52,8 +53,12 @@ def get_screener_results(
     limit=250,
     meta_source=None,
 ):
-    """Return screener rows from stock_snapshot joined with stock_universe for names."""
-    del meta_source  # snapshot already has sector/industry; universe used for name fallback
+    """Return screener rows from stock_snapshot joined with stock_universe for names.
+
+    When ``meta_source == "sp500"`` we also LEFT JOIN a temp S&P 500 metadata
+    table so the SQL itself can COALESCE sector / industry for constituents
+    that have not been enriched yet.
+    """
 
     return_limit = max(0, int(limit))
     tickers = list(tickers)
@@ -86,13 +91,15 @@ def get_screener_results(
 
     args: list = []
 
+    sector_expr = "COALESCE(NULLIF(s.sector, 'N/A'), s.sector, sp.sector)"
+
     if sector and sector != "All":
         if sector == "Other":
             where.append(
-                "(s.sector = 'Other' OR s.sector IS NULL OR TRIM(COALESCE(s.sector,'')) = '' OR s.sector = 'N/A')"
+                f"({sector_expr} = 'Other' OR {sector_expr} IS NULL OR TRIM(COALESCE({sector_expr},'')) = '' OR {sector_expr} = 'N/A')"
             )
         else:
-            where.append("s.sector = ?")
+            where.append(f"{sector_expr} = ?")
             args.append(sector)
 
     if dividends_only:
@@ -112,23 +119,26 @@ def get_screener_results(
     add_range("s.volume", volume_min, volume_max)
     add_range("s.price", price_min, price_max)
 
+    use_sp500_meta = (meta_source or "").lower() == "sp500"
+
     sql = f"""
         SELECT
             s.ticker AS ticker,
-            COALESCE(NULLIF(s.company_name, ''), u.company_name, s.ticker) AS company_name,
+            COALESCE(NULLIF(s.company_name, ''), u.company_name, sp.company_name, s.ticker) AS company_name,
             s.price AS price,
             s.pct_change AS pct_change,
             s.volume AS volume,
             s.market_cap AS market_cap,
             s.pe_ratio AS pe_ratio,
-            s.sector AS sector,
-            s.industry AS industry,
+            COALESCE(NULLIF(s.sector, 'N/A'), s.sector, sp.sector) AS sector,
+            COALESCE(NULLIF(s.industry, 'N/A'), s.industry, sp.industry) AS industry,
             s.dividend_yield AS dividend_yield,
             s.fifty_two_week_high AS fifty_two_week_high,
             s.fifty_two_week_low AS fifty_two_week_low,
             s.radar_pulse AS radar_pulse
         FROM stock_snapshot s
         LEFT JOIN stock_universe u ON u.ticker = s.ticker
+        LEFT JOIN _screener_sp500_meta sp ON sp.ticker = s.ticker
         WHERE {' AND '.join(where)}
           AND s.price IS NOT NULL
         ORDER BY (s.pct_change IS NULL) ASC, s.pct_change DESC
@@ -146,6 +156,38 @@ def get_screener_results(
             "INSERT OR IGNORE INTO _screener_universe_filter (ticker) VALUES (?)",
             [(t,) for t in tickers],
         )
+
+        conn.execute("DROP TABLE IF EXISTS _screener_sp500_meta")
+        conn.execute(
+            """
+            CREATE TEMP TABLE _screener_sp500_meta (
+                ticker TEXT PRIMARY KEY,
+                company_name TEXT,
+                sector TEXT,
+                industry TEXT
+            )
+            """
+        )
+        if use_sp500_meta:
+            try:
+                sp500 = get_sp500_constituents() or []
+            except Exception:
+                sp500 = []
+            if sp500:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO _screener_sp500_meta (ticker, company_name, sector, industry) VALUES (?, ?, ?, ?)",
+                    [
+                        (
+                            c.get("ticker"),
+                            c.get("company_name"),
+                            c.get("sector"),
+                            c.get("industry"),
+                        )
+                        for c in sp500
+                        if c.get("ticker")
+                    ],
+                )
+
         rows = conn.execute(sql, args).fetchall()
 
     out = []

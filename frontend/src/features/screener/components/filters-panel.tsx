@@ -108,8 +108,8 @@ export function FiltersPanel({
             </button>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto p-4">
-                <div className="grid gap-5">
+              <div className="flex-1 overflow-auto p-5">
+                <div className="grid gap-6">
                   <div>
                     <div className="text-xs font-semibold tracking-wide text-muted">
                       Search
@@ -273,7 +273,11 @@ export function FiltersPanel({
                   <Button variant="subtle" onClick={onReset}>
                     Reset
                   </Button>
-                  <Button variant="primary" onClick={onApply}>
+                  <Button
+                    variant="primary"
+                    onClick={onApply}
+                    className="shadow-[0_8px_24px_rgb(var(--blue)/0.18)]"
+                  >
                     Run Scan
                   </Button>
                 </div>

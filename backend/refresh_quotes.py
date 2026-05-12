@@ -15,6 +15,7 @@ from sec_engine import (
     get_cik_for_ticker,
     get_sec_facts,
     get_sp500_constituents,
+    normalize_sector,
 )
 from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import get_searchable_equity_tickers
@@ -81,10 +82,11 @@ def _enrich_market_cap_and_pe(
     *,
     valuation_sleep_s: float,
 ) -> None:
-    """Fill market_cap (Yahoo fast_info) and pe_ratio (price / SEC EPS) on snapshot rows."""
+    """Fill market_cap (Yahoo fast_info), pe_ratio (price / SEC EPS) and
+    sector / industry (Yahoo info, normalized) on snapshot rows."""
     time.sleep(valuation_sleep_s)
     row = conn.execute(
-        "SELECT price FROM stock_snapshot WHERE ticker = ?",
+        "SELECT price, sector, industry FROM stock_snapshot WHERE ticker = ?",
         (ticker,),
     ).fetchone()
     if not row or row["price"] is None:
@@ -92,12 +94,34 @@ def _enrich_market_cap_and_pe(
     price = float(row["price"])
     mcap = None
     pe = None
+    sector_ui = None
+    industry_val = None
+
+    yf_ticker = None
     try:
-        cap = yf.Ticker(ticker).fast_info.get("marketCap")
+        yf_ticker = yf.Ticker(ticker)
+        cap = yf_ticker.fast_info.get("marketCap")
         if cap is not None:
             mcap = float(cap)
     except Exception:
         pass
+
+    have_sector = row["sector"] not in (None, "", "N/A")
+    have_industry = row["industry"] not in (None, "", "N/A")
+    if (not have_sector or not have_industry) and yf_ticker is not None:
+        try:
+            info = yf_ticker.info or {}
+            if not have_sector:
+                raw_sec = info.get("sector") or ""
+                if raw_sec:
+                    sector_ui = normalize_sector(raw_sec)
+            if not have_industry:
+                raw_ind = info.get("industry") or ""
+                if raw_ind:
+                    industry_val = raw_ind
+        except Exception:
+            pass
+
     try:
         cik = get_cik_for_ticker(ticker)
         if cik:
@@ -114,16 +138,18 @@ def _enrich_market_cap_and_pe(
                     pe = round(price / float(eps), 2)
     except Exception:
         pass
-    if mcap is None and pe is None:
+    if mcap is None and pe is None and sector_ui is None and industry_val is None:
         return
     conn.execute(
         """
         UPDATE stock_snapshot SET
             market_cap = COALESCE(?, market_cap),
-            pe_ratio = COALESCE(?, pe_ratio)
+            pe_ratio   = COALESCE(?, pe_ratio),
+            sector     = COALESCE(NULLIF(sector, 'N/A'), sector, ?),
+            industry   = COALESCE(NULLIF(industry, 'N/A'), industry, ?)
         WHERE ticker = ?
         """,
-        (mcap, pe, ticker),
+        (mcap, pe, sector_ui, industry_val, ticker),
     )
 
 

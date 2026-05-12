@@ -20,32 +20,49 @@ import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
 /* eslint-disable react-hooks/incompatible-library */
 
+const MISSING = (
+  <span
+    className="inline-block h-1 w-1 -translate-y-[2px] rounded-full bg-[rgb(var(--muted)/0.55)]"
+    aria-label="No data"
+    title="No data"
+  />
+);
+
 function ChangeCell({ value }: { value: number }) {
   const up = value >= 0;
   return (
-    <div className={cn("font-medium tabular-nums", up ? "text-emerald" : "text-rose")}>
+    <div
+      className={cn(
+        "inline-flex items-center justify-end rounded-md px-2 py-0.5 text-right font-medium tabular-nums",
+        up
+          ? "bg-[rgb(var(--emerald)/0.10)] text-emerald"
+          : "bg-[rgb(var(--rose)/0.10)] text-rose",
+      )}
+    >
       {up ? "+" : ""}
       {Number(value).toFixed(2)}%
     </div>
   );
 }
 
+type ColMeta = {
+  headerClass?: string;
+  cellClass?: string;
+  align?: "left" | "right";
+};
+
 export function ResultsTable({
   rows,
   loading,
   onSelect,
   selectedTicker,
-  onRowDoubleClick,
 }: {
   rows: ScreenerRow[];
   loading: boolean;
   onSelect: (row: ScreenerRow) => void;
   selectedTicker?: string;
-  onRowDoubleClick?: (row: ScreenerRow) => void;
 }) {
   const watchlist = useWatchlist();
-
-  type ColMeta = { cellClass?: string };
 
   const columns = React.useMemo<ColumnDef<ScreenerRow, unknown>[]>(
     () => [
@@ -62,7 +79,7 @@ export function ResultsTable({
         header: "Company",
         accessorKey: "company_name",
         cell: ({ getValue }) => (
-          <div className="max-w-[min(28vw,240px)] truncate text-sm">
+          <div className="max-w-[min(30vw,260px)] truncate text-sm text-foreground/85">
             {getValue<string>()}
           </div>
         ),
@@ -70,23 +87,33 @@ export function ResultsTable({
       {
         header: "Price",
         accessorKey: "price",
+        meta: { align: "right" } satisfies ColMeta,
         cell: ({ getValue }) => (
-          <div className="tabular-nums">{formatUsd(getValue<number>())}</div>
+          <div className="text-right tabular-nums">
+            {formatUsd(getValue<number>())}
+          </div>
         ),
       },
       {
         header: "% Change",
         accessorKey: "pct_change",
-        cell: ({ getValue }) => <ChangeCell value={getValue<number>()} />,
+        meta: { align: "right" } satisfies ColMeta,
+        cell: ({ getValue }) => (
+          <div className="flex justify-end">
+            <ChangeCell value={getValue<number>()} />
+          </div>
+        ),
       },
       {
         header: "Market Cap",
         accessorKey: "market_cap",
+        meta: { align: "right" } satisfies ColMeta,
         cell: ({ getValue }) => {
           const v = getValue<number | null>();
+          const ok = typeof v === "number" && Number.isFinite(v);
           return (
-            <div className="tabular-nums">
-              {typeof v === "number" && Number.isFinite(v) ? formatCompactNumber(v) : "—"}
+            <div className="text-right tabular-nums">
+              {ok ? formatCompactNumber(v as number) : MISSING}
             </div>
           );
         },
@@ -94,11 +121,13 @@ export function ResultsTable({
       {
         header: "P/E",
         accessorKey: "pe_ratio",
+        meta: { align: "right" } satisfies ColMeta,
         cell: ({ getValue }) => {
           const v = getValue<number | null>();
+          const ok = typeof v === "number" && Number.isFinite(v);
           return (
-            <div className="tabular-nums">
-              {typeof v === "number" && Number.isFinite(v) ? Number(v).toFixed(2) : "—"}
+            <div className="text-right tabular-nums">
+              {ok ? Number(v).toFixed(2) : MISSING}
             </div>
           );
         },
@@ -108,10 +137,11 @@ export function ResultsTable({
         accessorKey: "sector",
         cell: ({ getValue }) => {
           const raw = getValue<string | null | undefined>();
-          const s = raw == null || raw === "" || raw === "N/A" ? null : raw;
+          const s =
+            raw == null || raw === "" || raw === "N/A" ? null : raw;
           return (
-            <div className="max-w-[min(22vw,140px)] truncate text-xs text-muted">
-              {s ?? "—"}
+            <div className="max-w-[min(22vw,150px)] truncate text-xs text-muted">
+              {s ?? MISSING}
             </div>
           );
         },
@@ -119,9 +149,15 @@ export function ResultsTable({
       {
         header: "Volume",
         accessorKey: "volume",
-        meta: { cellClass: "hidden xl:table-cell" } satisfies ColMeta,
+        meta: {
+          align: "right",
+          headerClass: "hidden xl:table-cell",
+          cellClass: "hidden xl:table-cell",
+        } satisfies ColMeta,
         cell: ({ getValue }) => (
-          <div className="tabular-nums">{formatCompactNumber(getValue<number>())}</div>
+          <div className="text-right tabular-nums">
+            {formatCompactNumber(getValue<number>())}
+          </div>
         ),
       },
     ],
@@ -146,7 +182,7 @@ export function ResultsTable({
   const virtualizer = useVirtualizer({
     count: table.getRowModel().rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 44,
+    estimateSize: () => 52,
     overscan: 12,
   });
 
@@ -158,9 +194,11 @@ export function ResultsTable({
       ? totalSize - virtualRows[virtualRows.length - 1]!.end
       : 0;
 
+  const totalColumns = columns.length + 1; // + actions
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] shadow-[0_20px_60px_rgb(0_0_0/0.25)] backdrop-blur">
-      <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.40)] shadow-[0_24px_80px_rgb(0_0_0/0.30)] backdrop-blur">
+      <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
         <div>
           <div className="text-sm font-semibold tracking-tight">Results</div>
           <div className="text-xs text-muted">
@@ -169,28 +207,37 @@ export function ResultsTable({
               : `${table.getRowModel().rows.length.toLocaleString()} matches`}
           </div>
         </div>
-        <div className="text-xs text-muted">Click a row for details</div>
+        <div className="hidden text-xs text-muted sm:block">
+          Click a row to open details
+        </div>
       </div>
 
       <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
         <table className="w-full text-left text-sm">
           <thead className="sticky top-0 z-10 bg-[rgb(var(--surface-1)/0.92)] backdrop-blur">
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="border-b border-border/40">
+              <tr key={hg.id} className="border-b border-border/30">
                 {hg.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const sorted = header.column.getIsSorted();
+                  const meta = header.column.columnDef.meta as
+                    | ColMeta
+                    | undefined;
+                  const align = meta?.align ?? "left";
                   return (
                     <th
                       key={header.id}
                       colSpan={header.colSpan}
                       className={cn(
-                        "px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted",
-                        canSort && "cursor-pointer select-none hover:text-foreground",
-                        (header.column.columnDef.meta as ColMeta | undefined)?.cellClass,
+                        "px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted",
+                        canSort &&
+                          "cursor-pointer select-none transition-colors hover:text-foreground",
+                        meta?.headerClass,
                       )}
                       onClick={
-                        canSort ? header.column.getToggleSortingHandler() : undefined
+                        canSort
+                          ? header.column.getToggleSortingHandler()
+                          : undefined
                       }
                       aria-sort={
                         sorted === "asc"
@@ -200,7 +247,12 @@ export function ResultsTable({
                             : "none"
                       }
                     >
-                      <div className="flex items-center gap-2">
+                      <div
+                        className={cn(
+                          "flex items-center gap-2",
+                          align === "right" && "justify-end",
+                        )}
+                      >
                         {flexRender(
                           header.column.columnDef.header,
                           header.getContext(),
@@ -214,7 +266,7 @@ export function ResultsTable({
                     </th>
                   );
                 })}
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">
+                <th className="px-5 py-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
@@ -225,8 +277,8 @@ export function ResultsTable({
             {loading ? (
               Array.from({ length: 12 }).map((_, i) => (
                 <tr key={i} className="border-b border-border/20">
-                  {Array.from({ length: 9 }).map((__, j) => (
-                    <td key={j} className="px-4 py-3">
+                  {Array.from({ length: totalColumns }).map((__, j) => (
+                    <td key={j} className="px-5 py-3.5">
                       <Skeleton className="h-4 w-full" />
                     </td>
                   ))}
@@ -236,7 +288,7 @@ export function ResultsTable({
               <>
                 {paddingTop > 0 && (
                   <tr>
-                    <td style={{ height: paddingTop }} colSpan={9} />
+                    <td style={{ height: paddingTop }} colSpan={totalColumns} />
                   </tr>
                 )}
 
@@ -244,41 +296,54 @@ export function ResultsTable({
                   const row = table.getRowModel().rows[vr.index]!;
                   const data = row.original;
                   const isSelected = data.ticker === selectedTicker;
-                  const tint = data.pct_change >= 0 ? "emerald" : "rose";
                   const watched = watchlist.has(data.ticker);
 
                   return (
                     <tr
                       key={row.id}
                       className={cn(
-                        "group border-b border-border/20 transition-colors",
+                        "group relative cursor-pointer border-b border-border/15 transition-colors",
                         isSelected
                           ? "bg-[linear-gradient(135deg,rgb(var(--blue)/0.10),rgb(var(--purple)/0.08))]"
-                          : tint === "emerald"
-                            ? "hover:bg-[rgb(var(--emerald)/0.06)]"
-                            : "hover:bg-[rgb(var(--rose)/0.06)]",
+                          : "hover:bg-[rgb(var(--surface-2)/0.18)]",
                       )}
                       onClick={() => onSelect(data)}
-                      onDoubleClick={() => onRowDoubleClick?.(data)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") onSelect(data);
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelect(data);
+                        }
                       }}
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            "px-4 py-3",
-                            (cell.column.columnDef.meta as ColMeta | undefined)?.cellClass,
-                          )}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                      {row.getVisibleCells().map((cell, idx) => {
+                        const meta = cell.column.columnDef.meta as
+                          | ColMeta
+                          | undefined;
+                        return (
+                          <td
+                            key={cell.id}
+                            className={cn(
+                              "relative px-5 py-3.5 align-middle",
+                              meta?.cellClass,
+                            )}
+                          >
+                            {idx === 0 && isSelected ? (
+                              <span
+                                aria-hidden
+                                className="absolute inset-y-1 left-0 w-[3px] rounded-r-full bg-[linear-gradient(180deg,rgb(var(--blue)/0.95),rgb(var(--purple)/0.85))]"
+                              />
+                            ) : null}
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -287,25 +352,35 @@ export function ResultsTable({
                                   e.stopPropagation();
                                   watchlist.toggle(data.ticker);
                                 }}
-                                aria-label={watched ? "Remove from watchlist" : "Add to watchlist"}
+                                aria-label={
+                                  watched
+                                    ? "Remove from watchlist"
+                                    : "Add to watchlist"
+                                }
                               >
                                 <Star
                                   className={cn(
                                     "h-4 w-4",
-                                    watched && "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
+                                    watched &&
+                                      "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
                                   )}
                                 />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {watched ? "Remove from watchlist" : "Add to watchlist"}
+                              {watched
+                                ? "Remove from watchlist"
+                                : "Add to watchlist"}
                             </TooltipContent>
                           </Tooltip>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelect(data);
+                                }}
                                 aria-label="Open details"
                               >
                                 <ExternalLink className="h-4 w-4" />
@@ -321,7 +396,10 @@ export function ResultsTable({
 
                 {paddingBottom > 0 && (
                   <tr>
-                    <td style={{ height: paddingBottom }} colSpan={9} />
+                    <td
+                      style={{ height: paddingBottom }}
+                      colSpan={totalColumns}
+                    />
                   </tr>
                 )}
               </>

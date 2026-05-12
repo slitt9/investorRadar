@@ -4,12 +4,12 @@ import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { FiltersPanel } from "@/features/screener/components/filters-panel";
 import { ResultsTable } from "@/features/screener/components/results-table";
-import {
-  ScreenerDetailDialog,
-  ScreenerDetailInline,
-} from "@/features/screener/components/detail-panel";
+import { ScreenerDetailDialog } from "@/features/screener/components/detail-panel";
 import { MobileFilters } from "@/features/screener/components/mobile-filters";
-import { useScreenerFilters, useScreenerResults } from "@/features/screener/use-screener";
+import {
+  useScreenerFilters,
+  useScreenerResults,
+} from "@/features/screener/use-screener";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 
@@ -24,8 +24,6 @@ export function ScreenerView() {
 
   const [filtersCollapsed, setFiltersCollapsed] = React.useState(false);
   const [selectedTicker, setSelectedTicker] = React.useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = React.useState(false);
-  const [fullscreen, setFullscreen] = React.useState(false);
 
   const hasDraftChanges = React.useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(applied),
@@ -35,7 +33,6 @@ export function ScreenerView() {
   React.useEffect(() => {
     if (!requestedTicker) return;
     setSelectedTicker(requestedTicker);
-    setDetailOpen(true);
   }, [requestedTicker]);
 
   const loading = isLoading || isFetching;
@@ -52,52 +49,88 @@ export function ScreenerView() {
         className="hidden lg:block"
       />
 
-      <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden p-4 lg:p-6">
-        <div className="mb-3 flex shrink-0 flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="text-xs text-muted">Screener</div>
-            <div className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
+      <section className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-4 lg:p-6 xl:p-8">
+        <header className="mb-4 flex shrink-0 flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted">
+                Screener
+              </span>
+              <span className="h-[2px] w-10 rounded-full bg-[linear-gradient(90deg,rgb(var(--blue)/0.85),rgb(var(--purple)/0.65),transparent)]" />
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[26px]">
               Find opportunities, fast.
-            </div>
-            <div className="mt-1 hidden max-w-[52ch] text-sm text-muted sm:block">
-              Sort columns and drill into fundamentals below the table.
-            </div>
+            </h1>
+            <p className="mt-1 hidden max-w-[60ch] text-sm text-muted sm:block">
+              Filter the universe, sort any column, and click a row to open a
+              detailed breakdown.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <MobileFilters value={draft} onChange={setDraft} onApply={apply} onReset={reset} />
+            <MobileFilters
+              value={draft}
+              onChange={setDraft}
+              onApply={apply}
+              onReset={reset}
+            />
             {hasDraftChanges && (
               <>
-                <Button variant="subtle" size="sm" className="hidden md:inline-flex" onClick={reset}>
+                <Button
+                  variant="subtle"
+                  size="sm"
+                  className="hidden md:inline-flex"
+                  onClick={reset}
+                >
                   Reset
                 </Button>
-                <Button variant="primary" size="sm" className="hidden md:inline-flex" onClick={apply}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="hidden md:inline-flex"
+                  onClick={apply}
+                >
                   Apply Changes
                 </Button>
               </>
             )}
             <div
               className={cn(
-                "hidden rounded-full border border-border/40 bg-[rgb(var(--surface-1)/0.55)] px-3 py-1 text-xs text-muted backdrop-blur md:block",
-                loading && "border-[rgb(var(--blue)/0.35)]",
+                "hidden items-center gap-2 rounded-full border border-border/40 bg-[rgb(var(--surface-1)/0.55)] px-3 py-1 text-xs text-muted backdrop-blur md:inline-flex",
+                loading && "border-[rgb(var(--blue)/0.35)] text-foreground",
               )}
             >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  loading
+                    ? "animate-pulse bg-blue"
+                    : hasDraftChanges
+                      ? "bg-purple"
+                      : "bg-emerald",
+                )}
+              />
               {loading ? "Refreshing" : hasDraftChanges ? "Draft changes" : "Ready"}
             </div>
           </div>
-        </div>
+        </header>
 
         <div className="min-h-0 overflow-hidden">
           {results.isError && (
             <div className="mb-3 rounded-2xl border border-[rgb(var(--rose)/0.35)] bg-[rgb(var(--rose)/0.10)] p-4 text-sm">
               <div className="font-semibold tracking-tight">Backend unreachable</div>
               <div className="mt-1 text-xs text-muted">
-                Start the Flask API on <span className="text-foreground">http://localhost:5000</span>{" "}
-                (run <span className="text-foreground">python backend/app.py</span>) or set{" "}
-                <span className="text-foreground">NEXT_PUBLIC_API_BASE_URL</span> (Vercel Services will also inject{" "}
-                <span className="text-foreground">NEXT_PUBLIC_BACKEND_URL</span> automatically).
+                Start the Flask API on{" "}
+                <span className="text-foreground">http://localhost:5000</span>{" "}
+                (run <span className="text-foreground">python backend/app.py</span>) or
+                set{" "}
+                <span className="text-foreground">NEXT_PUBLIC_API_BASE_URL</span>{" "}
+                (Vercel Services will also inject{" "}
+                <span className="text-foreground">NEXT_PUBLIC_BACKEND_URL</span>{" "}
+                automatically).
               </div>
               <div className="mt-2 text-xs text-muted">
-                If you’re using Render Free, the service may be waking up (30–60s). Then hit Retry.
+                If you’re using Render Free, the service may be waking up (30–60s).
+                Then hit Retry.
               </div>
               <div className="mt-3">
                 <button
@@ -113,41 +146,16 @@ export function ScreenerView() {
             rows={rows}
             loading={loading}
             selectedTicker={selectedTicker ?? undefined}
-            onSelect={(row) => {
-              setSelectedTicker(row.ticker);
-              setFullscreen(false);
-              setDetailOpen(true);
-            }}
-            onRowDoubleClick={(row) => {
-              setSelectedTicker(row.ticker);
-              setFullscreen(true);
-              setDetailOpen(true);
-            }}
+            onSelect={(row) => setSelectedTicker(row.ticker)}
           />
         </div>
-
-        {selectedTicker && detailOpen && !fullscreen ? (
-          <div className="mt-3 max-h-[min(42vh,420px)] min-h-[200px] shrink-0 overflow-hidden">
-            <ScreenerDetailInline
-              ticker={selectedTicker}
-              onClose={() => {
-                setDetailOpen(false);
-                setSelectedTicker(null);
-              }}
-              onExpand={() => setFullscreen(true)}
-            />
-          </div>
-        ) : null}
       </section>
 
       <ScreenerDetailDialog
         ticker={selectedTicker}
-        open={Boolean(selectedTicker && fullscreen)}
+        open={Boolean(selectedTicker)}
         onOpenChange={(o) => {
-          setFullscreen(o);
-          if (!o) {
-            setDetailOpen(true);
-          }
+          if (!o) setSelectedTicker(null);
         }}
       />
     </div>

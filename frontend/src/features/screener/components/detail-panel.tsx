@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,24 +20,48 @@ import { formatCompactNumber, formatPercent, formatUsd } from "@/lib/format";
 import { StockSparkline } from "./stock-sparkline";
 import { useHistory, useQuote, useSparkline } from "../api";
 import type { SeriesPoint } from "../types";
-import { Maximize2, Star, X } from "lucide-react";
+import { Star } from "lucide-react";
 import { useWatchlist } from "@/features/watchlist/watchlist-context";
 
-function RangeBar({ low, high, value }: { low: number; high: number; value: number }) {
+function RangeBar({
+  low,
+  high,
+  value,
+}: {
+  low: number;
+  high: number;
+  value: number;
+}) {
   const pct = Math.max(0, Math.min(1, (value - low) / Math.max(1, high - low)));
   return (
-    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[rgb(var(--surface-2)/0.65)]">
+    <div className="relative mt-2 h-2 w-full overflow-hidden rounded-full bg-[rgb(var(--surface-2)/0.65)]">
       <div
         className="h-full bg-[linear-gradient(90deg,rgb(var(--blue)/0.70),rgb(var(--purple)/0.60))]"
         style={{ width: `${pct * 100}%` }}
+      />
+      <div
+        className="absolute -top-1 h-4 w-[2px] -translate-x-1/2 rounded-full bg-foreground/80 shadow"
+        style={{ left: `${pct * 100}%` }}
+        aria-hidden
       />
     </div>
   );
 }
 
-function BentoStat({ label, value }: { label: string; value: React.ReactNode }) {
+function BentoStat({
+  label,
+  value,
+  hint,
+  emphasis,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  emphasis?: boolean;
+}) {
   const pulseValue =
-    label === "Radar Pulse" && (typeof value === "string" || typeof value === "number")
+    label === "Radar Pulse" &&
+    (typeof value === "string" || typeof value === "number")
       ? Number.parseInt(String(value), 10)
       : null;
 
@@ -65,23 +96,28 @@ function BentoStat({ label, value }: { label: string; value: React.ReactNode }) 
   return (
     <div
       className={cn(
-        "rounded-2xl border p-3",
+        "rounded-2xl border p-3.5 transition-colors",
         label === "Radar Pulse"
           ? pulseTone
-          : "border-border/30 bg-[rgb(var(--surface-2)/0.25)]",
+          : emphasis
+            ? "border-[rgb(var(--blue)/0.30)] bg-[linear-gradient(135deg,rgb(var(--blue)/0.10),rgb(var(--surface-2)/0.30))]"
+            : "border-border/30 bg-[rgb(var(--surface-2)/0.25)] hover:bg-[rgb(var(--surface-2)/0.40)]",
       )}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         {label}
       </div>
       <div
         className={cn(
-          "mt-1 text-sm font-semibold tabular-nums",
+          "mt-1.5 text-base font-semibold tabular-nums",
           label === "Radar Pulse" && pulse != null && pulseText,
         )}
       >
         {value}
       </div>
+      {hint ? (
+        <div className="mt-0.5 text-[11px] text-muted">{hint}</div>
+      ) : null}
     </div>
   );
 }
@@ -112,237 +148,13 @@ function formatXAxisLabel(tf: "1W" | "1M" | "1Y" | "MAX", raw: string) {
   return new Intl.DateTimeFormat("en-US", opts).format(d);
 }
 
-function Overview({
+function Chart({
   ticker,
-  fullscreen,
-  variant = "full",
+  chartHeightClass = "h-[320px]",
 }: {
   ticker: string;
-  fullscreen?: boolean;
-  variant?: "full" | "overview-only" | "financials-only";
+  chartHeightClass?: string;
 }) {
-  const quote = useQuote(ticker);
-  const sparkline = useSparkline(ticker);
-  const watchlist = useWatchlist();
-
-  const m = quote.data;
-  const series = React.useMemo(
-    () => (sparkline.data ? sparklineToSeries(sparkline.data) : []),
-    [sparkline.data],
-  );
-
-  if (quote.isError) {
-    return (
-      <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-center text-sm text-muted backdrop-blur">
-        Unable to load {ticker}.
-      </div>
-    );
-  }
-
-  if (quote.isLoading || !m) {
-    return (
-      <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-sm text-muted backdrop-blur">
-        Loading…
-      </div>
-    );
-  }
-
-  const up = (m.pct_change ?? 0) >= 0;
-  const watched = watchlist.has(m.ticker);
-  const sectorIndustry = [m.sector, m.industry]
-    .filter(hasOverviewLabel)
-    .join(" • ");
-  const showCompany = hasOverviewLabel(m.company_name);
-
-  const overviewCard = (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs text-muted">Overview</div>
-            <div className="mt-1 flex flex-wrap items-center gap-3">
-              <div className="text-2xl font-semibold tracking-tight">{m.ticker}</div>
-              {sectorIndustry ? (
-                <Badge variant="info">{sectorIndustry}</Badge>
-              ) : null}
-              <button
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-                onClick={() => watchlist.toggle(m.ticker)}
-                aria-label={watched ? "Remove from favorites" : "Add to favorites"}
-              >
-                <Star
-                  className={cn(
-                    "h-4 w-4",
-                    watched &&
-                      "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
-                  )}
-                />
-              </button>
-            </div>
-            {showCompany ? (
-              <div className="mt-1 text-sm text-muted">{m.company_name}</div>
-            ) : null}
-            <div className="mt-2 flex items-baseline gap-3">
-              <AnimatedNumber
-                value={m.price}
-                format={(n) => formatUsd(n, { maximumFractionDigits: 2 })}
-                className="text-xl font-semibold tabular-nums"
-              />
-              <div
-                className={cn(
-                  "text-sm font-semibold tabular-nums",
-                  up ? "text-emerald" : "text-rose",
-                )}
-              >
-                {up ? "+" : ""}
-                {Number(m.pct_change ?? 0).toFixed(2)}%
-              </div>
-            </div>
-          </div>
-          {series.length > 0 ? (
-            <StockSparkline
-              data={series}
-              color={up ? "rgb(var(--emerald))" : "rgb(var(--rose))"}
-            />
-          ) : (
-            <div className="h-10 w-[140px] rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)]" />
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="grid grid-cols-2 gap-2">
-          <BentoStat
-            label="Radar Pulse"
-            value={m.radar_pulse != null ? `${m.radar_pulse}/100` : "—"}
-          />
-          <BentoStat
-            label="Market Cap"
-            value={m.market_cap ? formatCompactNumber(m.market_cap) : "—"}
-          />
-          <BentoStat
-            label="Volume"
-            value={m.volume ? formatCompactNumber(m.volume) : "—"}
-          />
-          <BentoStat label="P/E" value={m.pe_ratio ? m.pe_ratio.toFixed(2) : "—"} />
-          <BentoStat
-            label="Dividend Yield"
-            value={
-              m.dividend_yield != null
-                ? formatPercent(m.dividend_yield, { maximumFractionDigits: 2 })
-                : "—"
-            }
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
-
-  const financialsBlock = (
-    <motion.div whileHover={{ scale: 1.01 }} transition={{ duration: 0.18 }}>
-      <div className="grid gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>Valuation</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              <BentoStat label="P/S" value={m.ps_ratio != null ? m.ps_ratio.toFixed(2) : "—"} />
-              <BentoStat
-                label="EV"
-                value={m.enterprise_value ? formatCompactNumber(m.enterprise_value) : "—"}
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Efficiency</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              <BentoStat
-                label="ROE"
-                value={m.roe != null ? formatPercent(m.roe) : "—"}
-              />
-              <BentoStat
-                label="Margin"
-                value={m.profit_margin != null ? formatPercent(m.profit_margin) : "—"}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Company Stats</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            <div className="grid grid-cols-2 gap-2">
-              <BentoStat
-                label="Rev Growth (QoQ)"
-                value={
-                  m.quarterly_revenue_growth != null
-                    ? `${m.quarterly_revenue_growth.toFixed(2)}%`
-                    : "—"
-                }
-              />
-              <BentoStat
-                label="Debt (Liabilities)"
-                value={m.liabilities ? formatCompactNumber(m.liabilities) : "—"}
-              />
-              <BentoStat
-                label="Assets"
-                value={m.assets ? formatCompactNumber(m.assets) : "—"}
-              />
-              <BentoStat
-                label="Net Balance"
-                value={m.equity ? formatCompactNumber(m.equity) : "—"}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>52W Range</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>
-                {m.fifty_two_week_low != null ? formatUsd(m.fifty_two_week_low) : "—"}
-              </span>
-              <span>
-                {m.fifty_two_week_high != null ? formatUsd(m.fifty_two_week_high) : "—"}
-              </span>
-            </div>
-            {m.fifty_two_week_low != null && m.fifty_two_week_high != null ? (
-              <RangeBar low={m.fifty_two_week_low} high={m.fifty_two_week_high} value={m.price} />
-            ) : (
-              <div className="mt-2 h-2 w-full rounded-full bg-[rgb(var(--surface-2)/0.65)]" />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </motion.div>
-  );
-
-  if (variant === "overview-only") {
-    return <div className="grid gap-2">{overviewCard}</div>;
-  }
-  if (variant === "financials-only") {
-    return <div className="grid gap-2 overflow-hidden">{financialsBlock}</div>;
-  }
-
-  return (
-    <div className="grid gap-3">
-      {overviewCard}
-
-      <Chart ticker={ticker} chartHeightClass={fullscreen ? "h-[460px]" : "h-[260px]"} />
-
-      {financialsBlock}
-    </div>
-  );
-}
-
-function Chart({ ticker, chartHeightClass = "h-[260px]" }: { ticker: string; chartHeightClass?: string }) {
   const [tf, setTf] = React.useState<"1W" | "1M" | "1Y" | "MAX">("1M");
   const quote = useQuote(ticker);
   const up = (quote.data?.pct_change ?? 0) >= 0;
@@ -364,7 +176,7 @@ function Chart({ ticker, chartHeightClass = "h-[260px]" }: { ticker: string; cha
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold tracking-tight">Chart</div>
+        <div className="text-sm font-semibold tracking-tight">Price history</div>
         <div className="flex items-center gap-1 rounded-xl border border-border/40 bg-[rgb(var(--surface-1)/0.45)] p-1">
           {(["1W", "1M", "1Y", "MAX"] as const).map((k) => (
             <button
@@ -440,76 +252,285 @@ function Chart({ ticker, chartHeightClass = "h-[260px]" }: { ticker: string; cha
       </div>
 
       <div className="text-xs text-muted">
-        {history.isFetching ? "Refreshing…" : "Area chart."}
+        {history.isFetching ? "Refreshing…" : `${chartData.length} points`}
       </div>
     </div>
   );
 }
 
-export function ScreenerDetailInline({
-  ticker,
-  onClose,
-  onExpand,
-}: {
-  ticker: string;
-  onClose: () => void;
-  onExpand: () => void;
-}) {
+function OverviewBody({ ticker }: { ticker: string }) {
+  const quote = useQuote(ticker);
+  const m = quote.data;
+
+  if (quote.isError) {
+    return (
+      <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-center text-sm text-muted">
+        Unable to load {ticker}.
+      </div>
+    );
+  }
+  if (quote.isLoading || !m) {
+    return (
+      <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-sm text-muted">
+        Loading…
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.45)] p-3 shadow-[0_12px_40px_rgb(0_0_0/0.2)] backdrop-blur">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <div className="min-w-0 text-sm font-semibold tracking-tight">{ticker}</div>
-        <div className="flex items-center gap-1">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <BentoStat
+        label="Radar Pulse"
+        value={m.radar_pulse != null ? `${m.radar_pulse}/100` : "—"}
+      />
+      <BentoStat
+        label="Market Cap"
+        value={m.market_cap ? formatCompactNumber(m.market_cap) : "—"}
+        emphasis
+      />
+      <BentoStat label="P/E" value={m.pe_ratio ? m.pe_ratio.toFixed(2) : "—"} />
+      <BentoStat
+        label="Volume"
+        value={m.volume ? formatCompactNumber(m.volume) : "—"}
+      />
+      <BentoStat
+        label="Dividend Yield"
+        value={
+          m.dividend_yield != null
+            ? formatPercent(m.dividend_yield, { maximumFractionDigits: 2 })
+            : "—"
+        }
+      />
+      <BentoStat
+        label="Beta"
+        value={
+          // beta lives on QuoteMetrics? defensive
+          (m as unknown as { beta?: number | null }).beta != null
+            ? Number((m as unknown as { beta: number }).beta).toFixed(2)
+            : "—"
+        }
+      />
+    </div>
+  );
+}
+
+function FinancialsBody({ ticker }: { ticker: string }) {
+  const quote = useQuote(ticker);
+  const m = quote.data;
+
+  if (quote.isLoading || !m) {
+    return (
+      <div className="grid place-items-center rounded-2xl border border-border/40 bg-[rgb(var(--surface-1)/0.35)] p-6 text-sm text-muted">
+        Loading…
+      </div>
+    );
+  }
+
+  return (
+    <motion.div whileHover={{ scale: 1.005 }} transition={{ duration: 0.18 }}>
+      <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Valuation</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <BentoStat
+                label="P/S"
+                value={m.ps_ratio != null ? m.ps_ratio.toFixed(2) : "—"}
+              />
+              <BentoStat
+                label="Enterprise Value"
+                value={
+                  m.enterprise_value
+                    ? formatCompactNumber(m.enterprise_value)
+                    : "—"
+                }
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Efficiency</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <BentoStat
+                label="ROE"
+                value={m.roe != null ? formatPercent(m.roe) : "—"}
+              />
+              <BentoStat
+                label="Profit Margin"
+                value={
+                  m.profit_margin != null
+                    ? formatPercent(m.profit_margin)
+                    : "—"
+                }
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Company stats</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <BentoStat
+                label="Rev Growth (QoQ)"
+                value={
+                  m.quarterly_revenue_growth != null
+                    ? `${m.quarterly_revenue_growth.toFixed(2)}%`
+                    : "—"
+                }
+              />
+              <BentoStat
+                label="Liabilities"
+                value={m.liabilities ? formatCompactNumber(m.liabilities) : "—"}
+              />
+              <BentoStat
+                label="Assets"
+                value={m.assets ? formatCompactNumber(m.assets) : "—"}
+              />
+              <BentoStat
+                label="Equity"
+                value={m.equity ? formatCompactNumber(m.equity) : "—"}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>52-week range</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span className="tabular-nums">
+                {m.fifty_two_week_low != null
+                  ? formatUsd(m.fifty_two_week_low)
+                  : "—"}
+              </span>
+              <span className="tabular-nums text-foreground">
+                {formatUsd(m.price)}
+              </span>
+              <span className="tabular-nums">
+                {m.fifty_two_week_high != null
+                  ? formatUsd(m.fifty_two_week_high)
+                  : "—"}
+              </span>
+            </div>
+            {m.fifty_two_week_low != null && m.fifty_two_week_high != null ? (
+              <RangeBar
+                low={m.fifty_two_week_low}
+                high={m.fifty_two_week_high}
+                value={m.price}
+              />
+            ) : (
+              <div className="mt-2 h-2 w-full rounded-full bg-[rgb(var(--surface-2)/0.65)]" />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </motion.div>
+  );
+}
+
+function DialogHeader({ ticker }: { ticker: string }) {
+  const quote = useQuote(ticker);
+  const sparkline = useSparkline(ticker);
+  const watchlist = useWatchlist();
+  const m = quote.data;
+  const series = React.useMemo(
+    () => (sparkline.data ? sparklineToSeries(sparkline.data) : []),
+    [sparkline.data],
+  );
+
+  const up = (m?.pct_change ?? 0) >= 0;
+  const watched = watchlist.has(ticker);
+  const sectorIndustry = m
+    ? [m.sector, m.industry].filter(hasOverviewLabel).join(" • ")
+    : "";
+  const showCompany = m ? hasOverviewLabel(m.company_name) : false;
+
+  return (
+    <div className="relative overflow-hidden border-b border-border/30 bg-[linear-gradient(135deg,rgb(var(--surface-1)/0.85),rgb(var(--surface-2)/0.45))] px-6 py-5">
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 -top-24 h-48 blur-3xl",
+          up
+            ? "bg-[radial-gradient(60%_50%_at_50%_50%,rgb(var(--emerald)/0.18),transparent_70%)]"
+            : "bg-[radial-gradient(60%_50%_at_50%_50%,rgb(var(--rose)/0.18),transparent_70%)]",
+        )}
+      />
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="text-3xl font-semibold tracking-tight">{ticker}</div>
+            {sectorIndustry ? (
+              <Badge variant="info">{sectorIndustry}</Badge>
+            ) : null}
+          </div>
+          {showCompany && m ? (
+            <div className="mt-0.5 max-w-[60ch] truncate text-sm text-muted">
+              {m.company_name}
+            </div>
+          ) : null}
+          <div className="mt-3 flex items-baseline gap-3">
+            {m ? (
+              <AnimatedNumber
+                value={m.price}
+                format={(n) => formatUsd(n, { maximumFractionDigits: 2 })}
+                className="text-4xl font-semibold tabular-nums"
+              />
+            ) : (
+              <div className="text-4xl font-semibold tabular-nums text-muted">
+                $—
+              </div>
+            )}
+            {m ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-sm font-semibold tabular-nums",
+                  up
+                    ? "border-[rgb(var(--emerald)/0.35)] bg-[rgb(var(--emerald)/0.12)] text-emerald"
+                    : "border-[rgb(var(--rose)/0.35)] bg-[rgb(var(--rose)/0.12)] text-rose",
+                )}
+              >
+                {up ? "+" : ""}
+                {Number(m.pct_change ?? 0).toFixed(2)}%
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pr-12">
+          {series.length > 0 ? (
+            <StockSparkline
+              data={series}
+              color={up ? "rgb(var(--emerald))" : "rgb(var(--rose))"}
+            />
+          ) : (
+            <div className="h-10 w-[140px] rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.25)]" />
+          )}
           <button
             type="button"
+            onClick={() => watchlist.toggle(ticker)}
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={onExpand}
-            aria-label="Open full details"
-            title="Full details"
+            aria-label={watched ? "Remove from watchlist" : "Add to watchlist"}
+            title={watched ? "In watchlist" : "Add to watchlist"}
           >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--blue)/0.25)]"
-            onClick={onClose}
-            aria-label="Close details"
-          >
-            <X className="h-4 w-4" />
+            <Star
+              className={cn(
+                "h-4 w-4",
+                watched &&
+                  "text-[rgb(var(--blue)/0.95)] fill-[rgb(var(--blue)/0.30)]",
+              )}
+            />
           </button>
         </div>
       </div>
-      <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <TabsList className="h-9 shrink-0 justify-start">
-          <TabsTrigger value="overview" className="text-xs">
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="chart" className="text-xs">
-            Chart
-          </TabsTrigger>
-          <TabsTrigger value="financials" className="text-xs">
-            Financials
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent
-          value="overview"
-          className="mt-2 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
-        >
-          <Overview ticker={ticker} variant="overview-only" fullscreen={false} />
-        </TabsContent>
-        <TabsContent
-          value="chart"
-          className="mt-2 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
-        >
-          <Chart ticker={ticker} chartHeightClass="h-[min(200px,28vh)]" />
-        </TabsContent>
-        <TabsContent
-          value="financials"
-          className="mt-2 min-h-0 max-h-[min(36vh,320px)] flex-1 overflow-y-auto overflow-x-hidden data-[state=inactive]:hidden"
-        >
-          <Overview ticker={ticker} variant="financials-only" fullscreen={false} />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
@@ -526,23 +547,42 @@ export function ScreenerDetailDialog({
   if (!ticker) {
     return null;
   }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[min(960px,calc(100vw-1.5rem))] flex-col gap-0 overflow-hidden border-border/40 p-0">
-        <div className="flex shrink-0 items-center justify-between border-b border-border/30 px-4 py-3">
-          <div className="text-sm font-semibold tracking-tight">{ticker}</div>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/30 bg-[rgb(var(--surface-2)/0.35)] text-muted transition-colors hover:bg-[rgb(var(--surface-2)/0.55)] hover:text-foreground"
-            onClick={() => onOpenChange(false)}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="max-h-[calc(100vh-6rem)] overflow-y-auto p-4">
-          <Overview ticker={ticker} variant="full" fullscreen />
-        </div>
+      <DialogContent className="grid w-[min(1080px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0">
+        <DialogHeader ticker={ticker} />
+
+        <Tabs defaultValue="overview" className="flex min-h-0 flex-col">
+          <div className="border-b border-border/30 px-6 py-3">
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="chart">Chart</TabsTrigger>
+              <TabsTrigger value="financials">Financials</TabsTrigger>
+            </TabsList>
+          </div>
+
+          <div className="max-h-[min(calc(100vh-15rem),640px)] overflow-y-auto overflow-x-hidden px-6 py-5">
+            <TabsContent
+              value="overview"
+              className="mt-0 focus-visible:outline-none data-[state=inactive]:hidden"
+            >
+              <OverviewBody ticker={ticker} />
+            </TabsContent>
+            <TabsContent
+              value="chart"
+              className="mt-0 focus-visible:outline-none data-[state=inactive]:hidden"
+            >
+              <Chart ticker={ticker} chartHeightClass="h-[360px]" />
+            </TabsContent>
+            <TabsContent
+              value="financials"
+              className="mt-0 focus-visible:outline-none data-[state=inactive]:hidden"
+            >
+              <FinancialsBody ticker={ticker} />
+            </TabsContent>
+          </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
