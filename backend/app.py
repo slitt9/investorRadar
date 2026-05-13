@@ -36,14 +36,14 @@ app = Flask(__name__)
 CORS(app)
 
 
-def _search_public_tickers(query, *, limit=150):
+def _search_public_tickers(query, *, limit=600):
     """Return a bounded list of matching public-company tickers from local DB."""
     q = (query or "").strip()
     if not q:
         return []
 
     ensure_stock_universe_ready()
-    results = search_stock_universe(q, limit=limit)
+    results = search_stock_universe(q.upper(), limit=limit)
     return [
         {"ticker": row["ticker"], "company_name": row["company_name"]}
         for row in results
@@ -133,7 +133,8 @@ def screener():
 
     universe = request.args.get("universe", "sp500").strip().lower()
     all_cap = int(os.environ.get("SCREENER_UNIVERSE_MAX", "4000"))
-    q = request.args.get("q", "").strip().upper()
+    q_raw = request.args.get("q", "") or ""
+    q = str(q_raw).strip().upper()
     sector = request.args.get("sector", "All").strip()
     dividends_only = request.args.get("dividends_only", "").strip().lower() in ("1", "true", "yes")
     limit = int(request.args.get("limit", "250"))
@@ -158,7 +159,11 @@ def screener():
     else:
         scan_list = POPULAR_TICKERS
 
-    if q and os.environ.get("SCREENER_ON_DEMAND_QUOTES", "1").lower() in ("1", "true", "yes"):
+    if q and scan_list and os.environ.get("SCREENER_ON_DEMAND_QUOTES", "1").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
         missing = _tickers_missing_snapshot_price(scan_list, max_fix=20)
         if missing:
             try:
@@ -170,6 +175,12 @@ def screener():
         "market_cap_min", "market_cap_max", 2_000_000_000_000
     )
     pe_min, pe_max = active_range("pe_min", "pe_max", 80)
+
+    # When searching, fetch enough rows that SQL pct_change ordering cannot drop a
+    # high-relevance ticker before we re-sort by match rank.
+    fetch_limit = int(limit)
+    if q and scan_list:
+        fetch_limit = max(fetch_limit, len(scan_list))
 
     rows = get_screener_results(
         tickers=scan_list,
@@ -183,12 +194,25 @@ def screener():
         price_max=f("price_max"),
         sector=sector,
         dividends_only=dividends_only,
-        limit=limit,
+        limit=fetch_limit,
         meta_source=meta_source,
     )
 
-    # Default sort: pct_change desc (matches UI default).
-    rows.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
+    if q:
+        rank = {t: i for i, t in enumerate(scan_list)}
+        rows.sort(
+            key=lambda r: (
+                rank.get(r.get("ticker"), 10_000),
+                r.get("pct_change") is None,
+                -(r.get("pct_change") or 0.0),
+            )
+        )
+        rows = rows[: int(limit)]
+    else:
+        # Default sort: pct_change desc (matches UI default).
+        rows.sort(
+            key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0))
+        )
     rows = hydrate_screener_rows(rows)
     return jsonify(rows)
 

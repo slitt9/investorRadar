@@ -395,7 +395,8 @@ def search_stock_universe(query: str, *, limit: int = 20) -> list[dict[str, obje
     ticker_exact = q
     ticker_prefix = f"{q}%"
     name_prefix = f"{q}%"
-    contains = f"%{q}%"
+    ticker_contains = f"%{q}%"
+    name_contains = f"%{q}%"
 
     with get_db() as conn:
         rows = conn.execute(
@@ -420,21 +421,28 @@ def search_stock_universe(query: str, *, limit: int = 20) -> list[dict[str, obje
                 CASE
                     WHEN ticker = ? THEN 0
                     WHEN ticker LIKE ? THEN 1
-                    WHEN normalized_name LIKE ? THEN 2
-                    ELSE 3
+                    WHEN ticker LIKE ? THEN 2
+                    WHEN normalized_name LIKE ? THEN 3
+                    WHEN normalized_name LIKE ? THEN 4
+                    ELSE 5
                 END,
-                LENGTH(ticker),
-                ticker
+                CASE WHEN ticker LIKE ? THEN INSTR(ticker, ?) ELSE 999 END,
+                LENGTH(ticker) ASC,
+                ticker ASC
             LIMIT ?
             """,
             (
                 ticker_prefix,
                 name_prefix,
-                contains,
-                contains,
+                ticker_contains,
+                name_contains,
                 ticker_exact,
                 ticker_prefix,
+                ticker_contains,
                 name_prefix,
+                name_contains,
+                ticker_contains,
+                q,
                 max(1, int(limit)),
             ),
         ).fetchall()

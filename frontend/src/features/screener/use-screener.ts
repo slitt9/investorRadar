@@ -4,17 +4,19 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ScreenerFilters, ScreenerRow } from "./types";
 import { apiGet } from "@/lib/api";
+import { UI_MAX_MARKET_CAP } from "./market-cap-slider";
 
-const UI_MAX_MARKET_CAP = 2_000_000_000_000;
+export { UI_MAX_MARKET_CAP };
 const UI_MAX_PE = 80;
 const UI_MAX_VOLUME = 100_000_000;
 const UI_MAX_PRICE = 600;
 const SP500_RESULT_LIMIT = 500;
 
 async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
+  const q = filters.query.trim();
   return apiGet<ScreenerRow[]>("/api/screener", {
     universe: "sp500",
-    q: filters.query,
+    ...(q ? { q } : {}),
     sector: filters.sector,
     market_cap_min: filters.marketCap[0],
     market_cap_max: filters.marketCap[1],

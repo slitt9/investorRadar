@@ -3,6 +3,12 @@
 import * as React from "react";
 import { SlidersHorizontal } from "lucide-react";
 import type { ScreenerFilters } from "../types";
+import {
+  CAP_SLIDER_MAX,
+  marketCapFromSliderPosition,
+  sliderPositionFromMarketCap,
+  UI_MAX_MARKET_CAP,
+} from "../market-cap-slider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -125,18 +131,31 @@ export function MobileFilters({
                 </div>
                 <div className="mt-3">
                   <Slider
-                    value={value.marketCap}
+                    value={[
+                      sliderPositionFromMarketCap(value.marketCap[0]),
+                      sliderPositionFromMarketCap(
+                        value.marketCap[1] >= UI_MAX_MARKET_CAP
+                          ? UI_MAX_MARKET_CAP
+                          : value.marketCap[1],
+                      ),
+                    ]}
                     min={0}
-                    max={2_000_000_000_000}
-                    step={50_000_000}
-                    onValueChange={(marketCap) =>
+                    max={CAP_SLIDER_MAX}
+                    step={1}
+                    onValueChange={(pos) => {
+                      const [a, b] = pos as [number, number];
+                      const c0 = marketCapFromSliderPosition(a);
+                      const c1 = marketCapFromSliderPosition(b);
                       onChange({
                         ...value,
-                        marketCap: marketCap as [number, number],
-                      })
-                    }
+                        marketCap: [
+                          Math.min(c0, c1),
+                          Math.max(c0, c1),
+                        ] as [number, number],
+                      });
+                    }}
                   />
-                  <RangeLabel left="0" right="2T+" />
+                  <RangeLabel left="0 · fine ≤$5B" right="2T+" />
                 </div>
               </div>
 
