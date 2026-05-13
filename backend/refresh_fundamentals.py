@@ -18,7 +18,7 @@ from sec_engine import (
     get_sp500_constituents,
     normalize_sector,
 )
-from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
+from universe_config import MAG7_TICKERS, MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import get_searchable_equity_tickers
 
 yf.config.network.retries = 3
@@ -30,6 +30,8 @@ def _utc_now_iso() -> str:
 
 def resolve_tickers(mode: str) -> list[str]:
     mode = mode.strip().lower()
+    if mode == "mag7":
+        return list(MAG7_TICKERS)
     if mode == "sp500":
         cons = get_sp500_constituents()
         return [c["ticker"] for c in cons] if cons else []
@@ -224,7 +226,7 @@ def main():
     p = argparse.ArgumentParser(description="Refresh fundamentals on stock_snapshot rows")
     p.add_argument(
         "--universe",
-        choices=("sp500", "mega", "popular", "all"),
+        choices=("mag7", "sp500", "mega", "popular", "all"),
         default="sp500",
     )
     p.add_argument(
