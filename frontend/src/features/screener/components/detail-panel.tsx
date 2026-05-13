@@ -303,12 +303,7 @@ function OverviewBody({ ticker }: { ticker: string }) {
       />
       <BentoStat
         label="Beta"
-        value={
-          // beta lives on QuoteMetrics? defensive
-          (m as unknown as { beta?: number | null }).beta != null
-            ? Number((m as unknown as { beta: number }).beta).toFixed(2)
-            : "—"
-        }
+        value={m.beta != null ? Number(m.beta).toFixed(2) : "—"}
       />
     </div>
   );

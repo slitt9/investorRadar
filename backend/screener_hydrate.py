@@ -182,6 +182,34 @@ def _compute_live_metrics(ticker: str, price_hint: float | None) -> dict:
     return out
 
 
+def _quote_metrics_fallback(ticker: str) -> dict:
+    """Last-resort alignment with /api/quote for visible list rows.
+
+    This deliberately calls the same metrics path the popup uses, but only
+    after the cheap hydrator has failed and only for returned rows bounded by
+    SCREENER_HYDRATE_MAX. That keeps the general list accurate without doing
+    quote calls for the whole universe.
+    """
+    try:
+        from metrics import calculate_metrics
+
+        m = calculate_metrics(
+            ticker.upper(),
+            include_quarterly=False,
+            include_sec=True,
+        )
+        raw_sector = m.get("sector") or ""
+        return {
+            "market_cap": m.get("market_cap"),
+            "pe_ratio": m.get("pe_ratio"),
+            "sector": normalize_sector(raw_sector) if raw_sector else None,
+            "industry": m.get("industry") or None,
+        }
+    except Exception as exc:
+        log.warning("hydrate quote fallback(%s) failed: %s", ticker, exc)
+        return {k: None for k in _EMPTY_KEYS}
+
+
 def _cached_live_metrics(ticker: str, price_hint: float | None) -> dict:
     """Wrapped compute that retries empty results quickly but caches positives."""
     try:
@@ -243,9 +271,14 @@ def hydrate_screener_rows(rows: list[dict]) -> list[dict]:
 
     live_enabled = _truthy(os.environ.get("SCREENER_HYDRATE_LIVE", "1"))
     try:
-        live_cap = int(os.environ.get("SCREENER_HYDRATE_MAX", "25"))
+        # Default to every returned row. The endpoint already applies LIMIT,
+        # so a cap here should be an explicit operational override, not a UI
+        # correctness compromise that leaves visible blanks.
+        live_cap = int(os.environ.get("SCREENER_HYDRATE_MAX", str(len(rows))))
     except ValueError:
-        live_cap = 25
+        live_cap = len(rows)
+    if live_cap <= 0:
+        live_cap = len(rows)
     try:
         live_sleep = float(os.environ.get("SCREENER_HYDRATE_SLEEP", "0.05"))
     except ValueError:
@@ -254,6 +287,7 @@ def hydrate_screener_rows(rows: list[dict]) -> list[dict]:
     out: list[dict] = []
     live_used = 0
     pending_writes: list[tuple] = []
+    unresolved: list[str] = []
 
     for row in rows:
         r = dict(row)
@@ -283,6 +317,26 @@ def hydrate_screener_rows(rows: list[dict]) -> list[dict]:
                 log.warning("hydrate live(%s) failed: %s", t, exc)
                 live = {k: None for k in _EMPTY_KEYS}
 
+            still_missing_after_fast = (
+                (_num_needs_fill(r.get("market_cap")) and live.get("market_cap") is None)
+                or (_num_needs_fill(r.get("pe_ratio")) and live.get("pe_ratio") is None)
+                or (_sector_needs_fill(r.get("sector")) and not live.get("sector"))
+            )
+            if still_missing_after_fast and _truthy(
+                os.environ.get("SCREENER_HYDRATE_QUOTE_FALLBACK", "1")
+            ):
+                fallback = _quote_metrics_fallback(t)
+                live = {
+                    "market_cap": live.get("market_cap")
+                    if live.get("market_cap") is not None
+                    else fallback.get("market_cap"),
+                    "pe_ratio": live.get("pe_ratio")
+                    if live.get("pe_ratio") is not None
+                    else fallback.get("pe_ratio"),
+                    "sector": live.get("sector") or fallback.get("sector"),
+                    "industry": live.get("industry") or fallback.get("industry"),
+                }
+
             new_cap = None
             new_pe = None
             new_sector = None
@@ -307,6 +361,13 @@ def hydrate_screener_rows(rows: list[dict]) -> list[dict]:
             if live_sleep > 0:
                 time.sleep(live_sleep)
 
+        if (
+            _num_needs_fill(r.get("market_cap"))
+            or _num_needs_fill(r.get("pe_ratio"))
+            or _sector_needs_fill(r.get("sector"))
+        ):
+            unresolved.append(t)
+
         out.append(r)
 
     if pending_writes:
@@ -329,5 +390,11 @@ def hydrate_screener_rows(rows: list[dict]) -> list[dict]:
             )
         except Exception as exc:
             log.warning("hydrate persist batch failed: %s", exc)
+
+    if unresolved:
+        log.warning(
+            "hydrate unresolved returned rows: %s",
+            ", ".join(unresolved[:50]),
+        )
 
     return out

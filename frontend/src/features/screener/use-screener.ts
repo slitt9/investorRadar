@@ -26,6 +26,10 @@ function isWideOpen(filters: ScreenerFilters) {
   );
 }
 
+export function isDefaultScreenerFilters(filters: ScreenerFilters) {
+  return isWideOpen(filters);
+}
+
 function isMegaCapFastPath(filters: ScreenerFilters) {
   const megaMin = 1_000_000_000_000;
   return (
@@ -59,11 +63,12 @@ function shouldAutoBroadenQuery(filters: ScreenerFilters) {
 }
 
 async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
+  const defaultMag7 = isDefaultScreenerFilters(filters);
   const megaCapFastPath = isMegaCapFastPath(filters);
   const queryBroadening = shouldAutoBroadenQuery(filters);
   const marketCap = queryBroadening ? ([0, UI_MAX_MARKET_CAP] as [number, number]) : filters.marketCap;
   return apiGet<ScreenerRow[]>("/api/screener", {
-    universe: megaCapFastPath ? "mega" : "all",
+    universe: defaultMag7 ? "mag7" : megaCapFastPath ? "mega" : "all",
     q: filters.query,
     sector: filters.sector,
     market_cap_min: marketCap[0],
@@ -76,7 +81,9 @@ async function fetchScreener(filters: ScreenerFilters): Promise<ScreenerRow[]> {
     price_max: filters.price[1],
     limit: queryBroadening
       ? QUERY_RESULT_LIMIT
-      : megaCapFastPath
+      : defaultMag7
+        ? 7
+        : megaCapFastPath
         ? 60
         : isWideOpen(filters)
           ? 300

@@ -8,6 +8,7 @@ export type QuoteMetrics = {
   company_name: string;
   sector: string;
   industry: string;
+  beta: number | null;
   price: number;
   change: number | null;
   pct_change: number;

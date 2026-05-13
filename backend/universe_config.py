@@ -1,5 +1,15 @@
 """Shared ticker universe lists for API and refresh jobs."""
 
+MAG7_TICKERS = (
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "TSLA",
+)
+
 MEGA_CAP_TICKERS = (
     "AAPL",
     "MSFT",

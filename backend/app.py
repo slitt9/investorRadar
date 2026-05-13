@@ -24,7 +24,7 @@ from refresh_quotes import refresh_quotes
 from screener_db import get_screener_results
 from screener_hydrate import hydrate_screener_rows
 from sec_engine import get_sp500_constituents
-from universe_config import MEGA_CAP_TICKERS, POPULAR_TICKERS
+from universe_config import MAG7_TICKERS, MEGA_CAP_TICKERS, POPULAR_TICKERS
 from universe_sync import (
     ensure_stock_universe_ready,
     get_searchable_equity_tickers,
@@ -105,7 +105,7 @@ def screener():
     """Returns screener rows for a bounded universe.
 
     Query params:
-      - universe: "sp500" | "mega" | "popular" (default: sp500)
+      - universe: "mag7" | "sp500" | "mega" | "popular" | "all" (default: all)
       - q: optional search string (ticker or name) to restrict results
       - sector: sector filter, "All" to ignore
       - dividends_only: "1" | "true"
@@ -122,6 +122,36 @@ def screener():
         except ValueError:
             return None
 
+    def active_range(name_min, name_max, ui_max):
+        lo = f(name_min)
+        hi = f(name_max)
+        if lo is not None and lo <= 0:
+            lo = None
+        if hi is not None and hi >= ui_max:
+            hi = None
+        return lo, hi
+
+    def row_in_range(row, key, lo, hi):
+        v = row.get(key)
+        if v is None:
+            return False
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            return False
+        if lo is not None and n < lo:
+            return False
+        if hi is not None and n > hi:
+            return False
+        return True
+
+    def has_required_list_fundamentals(row):
+        return (
+            row.get("market_cap") is not None
+            and row.get("pe_ratio") is not None
+            and str(row.get("sector") or "").strip().upper() not in ("", "N/A")
+        )
+
     universe = request.args.get("universe", "all").strip().lower()
     all_cap = int(os.environ.get("SCREENER_UNIVERSE_MAX", "4000"))
     q = request.args.get("q", "").strip().upper()
@@ -134,6 +164,8 @@ def screener():
     if q:
         matches = _search_public_tickers(q, limit=150)
         scan_list = tuple(m["ticker"] for m in matches)
+    elif universe == "mag7":
+        scan_list = MAG7_TICKERS
     elif universe in ("sp500", "mega"):
         constituents = get_sp500_constituents()
         if universe == "mega":
@@ -155,12 +187,17 @@ def screener():
             except Exception:
                 pass
 
+    market_cap_min, market_cap_max = active_range(
+        "market_cap_min", "market_cap_max", 2_000_000_000_000
+    )
+    pe_min, pe_max = active_range("pe_min", "pe_max", 80)
+
     rows = get_screener_results(
         tickers=scan_list,
-        market_cap_min=f("market_cap_min"),
-        market_cap_max=f("market_cap_max"),
-        pe_min=f("pe_min"),
-        pe_max=f("pe_max"),
+        market_cap_min=market_cap_min,
+        market_cap_max=market_cap_max,
+        pe_min=pe_min,
+        pe_max=pe_max,
         volume_min=f("volume_min"),
         volume_max=f("volume_max"),
         price_min=f("price_min"),
@@ -174,6 +211,15 @@ def screener():
     # Default sort: pct_change desc (matches UI default).
     rows.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
     rows = hydrate_screener_rows(rows)
+    rows = [r for r in rows if has_required_list_fundamentals(r)]
+    if market_cap_min is not None or market_cap_max is not None:
+        rows = [
+            r
+            for r in rows
+            if row_in_range(r, "market_cap", market_cap_min, market_cap_max)
+        ]
+    if pe_min is not None or pe_max is not None:
+        rows = [r for r in rows if row_in_range(r, "pe_ratio", pe_min, pe_max)]
     return jsonify(rows)
 
 

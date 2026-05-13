@@ -7,6 +7,7 @@ from SEC EDGAR to calculate metrics without any paid API keys.
 import yfinance as yf
 from sec_engine import get_cik_for_ticker, get_sec_facts, extract_latest_sec_fact
 from cache import cached
+from db import get_db
 
 # Yahoo ties requests to one session/crumb; bursty parallel calls often return 401 / Invalid Crumb.
 yf.config.network.retries = 3
@@ -14,6 +15,59 @@ yf.config.network.retries = 3
 
 def _clamp(n, lo=0.0, hi=100.0):
     return max(lo, min(hi, n))
+
+
+def _safe_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_sec_fact(facts, *tags, unit="USD"):
+    for tag in tags:
+        value = extract_latest_sec_fact(facts, tag, unit=unit)
+        if value is not None:
+            return value
+    return None
+
+
+def _snapshot_metrics(ticker):
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    market_cap, pe_ratio, sector, industry, dividend_yield,
+                    fifty_two_week_high, fifty_two_week_low, company_name,
+                    radar_pulse
+                FROM stock_snapshot
+                WHERE ticker = ?
+                """,
+                (ticker.upper(),),
+            ).fetchone()
+            return dict(row) if row else {}
+    except Exception:
+        return {}
+
+
+def _persist_radar_pulse_if_missing(ticker, radar_pulse):
+    if radar_pulse is None:
+        return
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """
+                UPDATE stock_snapshot
+                SET radar_pulse = COALESCE(radar_pulse, ?)
+                WHERE ticker = ?
+                """,
+                (int(radar_pulse), ticker.upper()),
+            )
+    except Exception:
+        pass
 
 
 def compute_radar_pulse(metrics):
@@ -81,8 +135,10 @@ def compute_radar_pulse(metrics):
 @cached(ttl=120)
 def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
     """Calculates all financial metrics for a given ticker locally."""
+    ticker = ticker.upper()
+    snapshot = _snapshot_metrics(ticker)
     metrics = {
-        "ticker": ticker.upper(),
+        "ticker": ticker,
         "price": None,
         "change": None,
         "pct_change": None,
@@ -99,13 +155,13 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
         "assets": None,
         "liabilities": None,
         "equity": None,
-        "sector": "N/A",
-        "industry": "N/A",
+        "sector": snapshot.get("sector") or "N/A",
+        "industry": snapshot.get("industry") or "N/A",
         "beta": None,
-        "dividend_yield": None,
-        "fifty_two_week_high": None,
-        "fifty_two_week_low": None,
-        "company_name": "N/A",
+        "dividend_yield": snapshot.get("dividend_yield"),
+        "fifty_two_week_high": snapshot.get("fifty_two_week_high"),
+        "fifty_two_week_low": snapshot.get("fifty_two_week_low"),
+        "company_name": snapshot.get("company_name") or "N/A",
         "quarterly_revenue_growth": None,
         "quarterly_operating_expenses": None,
     }
@@ -126,27 +182,35 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
             metrics["volume"] = int(hist["Volume"].iloc[-1])
 
         info = stock.info
-        metrics["sector"] = info.get("sector", "N/A")
-        metrics["industry"] = info.get("industry", "N/A")
+        metrics["sector"] = info.get("sector") or metrics["sector"]
+        metrics["industry"] = info.get("industry") or metrics["industry"]
         metrics["beta"] = info.get("beta")
-        metrics["dividend_yield"] = info.get("dividendYield")
+        metrics["dividend_yield"] = info.get("dividendYield") or metrics["dividend_yield"]
         metrics["payout_ratio"] = info.get("payoutRatio")
         metrics["ps_ratio"] = info.get("priceToSalesTrailing12Months")
         metrics["enterprise_value"] = info.get("enterpriseValue")
         metrics["profit_margin"] = info.get("profitMargins")
         metrics["roe"] = info.get("returnOnEquity")
-        metrics["fifty_two_week_high"] = info.get("fiftyTwoWeekHigh")
-        metrics["fifty_two_week_low"] = info.get("fiftyTwoWeekLow")
-        metrics["company_name"] = info.get("shortName", info.get("longName", "N/A"))
+        metrics["fifty_two_week_high"] = info.get("fiftyTwoWeekHigh") or metrics["fifty_two_week_high"]
+        metrics["fifty_two_week_low"] = info.get("fiftyTwoWeekLow") or metrics["fifty_two_week_low"]
+        metrics["company_name"] = (
+            info.get("shortName")
+            or info.get("longName")
+            or metrics["company_name"]
+        )
 
-        if not include_sec:
-            # Fast-path derived values from yfinance info (avoids SEC calls).
-            market_cap = info.get("marketCap")
-            pe = info.get("trailingPE") or info.get("forwardPE")
-            if market_cap is not None:
-                metrics["market_cap"] = float(market_cap)
-            if pe is not None:
-                metrics["pe_ratio"] = float(pe)
+        revenue_growth = _safe_float(info.get("revenueGrowth"))
+        if revenue_growth is not None:
+            # yfinance returns a ratio; the UI displays this field as a percent number.
+            metrics["quarterly_revenue_growth"] = round(revenue_growth * 100.0, 2)
+
+        # Fast fallback values. SEC-derived values below override these when available.
+        market_cap = info.get("marketCap") or snapshot.get("market_cap")
+        pe = info.get("trailingPE") or info.get("forwardPE") or snapshot.get("pe_ratio")
+        if market_cap is not None:
+            metrics["market_cap"] = float(market_cap)
+        if pe is not None:
+            metrics["pe_ratio"] = float(pe)
 
         if include_quarterly:
             # Grab quarterly income statement for growth metrics
@@ -191,8 +255,37 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
                         facts, "CommonStockSharesOutstanding", unit="shares"
                     )
 
-                assets = extract_latest_sec_fact(facts, "Assets", unit="USD")
-                liabilities = extract_latest_sec_fact(facts, "Liabilities", unit="USD")
+                assets = _first_sec_fact(
+                    facts,
+                    "Assets",
+                    "AssetsCurrent",
+                    unit="USD",
+                )
+                liabilities = _first_sec_fact(
+                    facts,
+                    "Liabilities",
+                    "LiabilitiesCurrent",
+                    unit="USD",
+                )
+                revenue = _first_sec_fact(
+                    facts,
+                    "Revenues",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet",
+                    unit="USD",
+                )
+                net_income = _first_sec_fact(
+                    facts,
+                    "NetIncomeLoss",
+                    "ProfitLoss",
+                    unit="USD",
+                )
+                equity = _first_sec_fact(
+                    facts,
+                    "StockholdersEquity",
+                    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                    unit="USD",
+                )
 
                 metrics["eps"] = eps
                 metrics["shares_outstanding"] = shares
@@ -201,6 +294,15 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
 
                 if assets and liabilities:
                     metrics["equity"] = assets - liabilities
+                elif equity is not None:
+                    metrics["equity"] = equity
+
+                if metrics["profit_margin"] is None and revenue and net_income is not None:
+                    try:
+                        if float(revenue) != 0:
+                            metrics["profit_margin"] = float(net_income) / float(revenue)
+                    except (TypeError, ValueError):
+                        pass
 
                 # --- Phase 3: Derived calculations ---
                 if metrics["price"] is not None:
@@ -209,7 +311,11 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
                     if shares and shares > 0:
                         metrics["market_cap"] = round(metrics["price"] * shares, 0)
 
-    metrics["radar_pulse"] = compute_radar_pulse(metrics)
+    if snapshot.get("radar_pulse") is not None:
+        metrics["radar_pulse"] = int(snapshot["radar_pulse"])
+    else:
+        metrics["radar_pulse"] = compute_radar_pulse(metrics)
+        _persist_radar_pulse_if_missing(ticker, metrics["radar_pulse"])
     return metrics
 
 
