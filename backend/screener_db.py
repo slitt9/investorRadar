@@ -55,9 +55,10 @@ def get_screener_results(
 ):
     """Return screener rows from stock_snapshot joined with stock_universe for names.
 
-    When ``meta_source == "sp500"`` we also LEFT JOIN a temp S&P 500 metadata
-    table so the SQL itself can COALESCE sector / industry for constituents
-    that have not been enriched yet.
+    We always LEFT JOIN a temp ``_screener_sp500_meta`` table populated from
+    the Wikipedia constituent list, so that any S&P 500 ticker in the result
+    set gets sector / industry COALESCED in even when the requested universe
+    is ``all``. ``meta_source`` is kept for back-compat but ignored.
     """
 
     return_limit = max(0, int(limit))
@@ -119,7 +120,11 @@ def get_screener_results(
     add_range("s.volume", volume_min, volume_max)
     add_range("s.price", price_min, price_max)
 
-    use_sp500_meta = (meta_source or "").lower() == "sp500"
+    # NOTE: we always populate the S&P 500 meta temp table (cheap, cached
+    # constituent list) so that any S&P 500 ticker present in the result set
+    # gets sector / industry from the Wikipedia map, regardless of which
+    # universe the caller requested.
+    del meta_source
 
     sql = f"""
         SELECT
@@ -168,25 +173,24 @@ def get_screener_results(
             )
             """
         )
-        if use_sp500_meta:
-            try:
-                sp500 = get_sp500_constituents() or []
-            except Exception:
-                sp500 = []
-            if sp500:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO _screener_sp500_meta (ticker, company_name, sector, industry) VALUES (?, ?, ?, ?)",
-                    [
-                        (
-                            c.get("ticker"),
-                            c.get("company_name"),
-                            c.get("sector"),
-                            c.get("industry"),
-                        )
-                        for c in sp500
-                        if c.get("ticker")
-                    ],
-                )
+        try:
+            sp500 = get_sp500_constituents() or []
+        except Exception:
+            sp500 = []
+        if sp500:
+            conn.executemany(
+                "INSERT OR IGNORE INTO _screener_sp500_meta (ticker, company_name, sector, industry) VALUES (?, ?, ?, ?)",
+                [
+                    (
+                        c.get("ticker"),
+                        c.get("company_name"),
+                        c.get("sector"),
+                        c.get("industry"),
+                    )
+                    for c in sp500
+                    if c.get("ticker")
+                ],
+            )
 
         rows = conn.execute(sql, args).fetchall()
 
