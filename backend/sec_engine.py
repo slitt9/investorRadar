@@ -166,9 +166,14 @@ def get_cik_for_ticker(ticker):
     return tickers_map.get(ticker.upper())
 
 
-@cached(ttl=3600)
+@cached(ttl=3600, maxsize=8)
 def get_sec_facts(cik):
-    """Fetches raw XBRL company facts JSON for a given CIK."""
+    """Fetches raw XBRL company facts JSON for a given CIK.
+
+    The result is the raw companyfacts.json payload, which can be 10-30 MB per
+    ticker. We cap the cache to a small LRU window so refreshing the entire
+    S&P 500 in a single process stays within tight (~2 GB) memory budgets.
+    """
     if not cik:
         return None
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"

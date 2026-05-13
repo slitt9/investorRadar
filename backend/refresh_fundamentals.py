@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import time
 from datetime import datetime, timezone
@@ -112,7 +113,7 @@ def refresh_fundamentals(
     """
 
     with get_db() as conn:
-        for ticker in tickers:
+        for processed, ticker in enumerate(tickers, 1):
             row = conn.execute(
                 "SELECT price, company_name FROM stock_snapshot WHERE ticker = ?",
                 (ticker,),
@@ -278,6 +279,19 @@ def refresh_fundamentals(
                 ),
             )
             updated += 1
+
+            # Release large per-ticker payloads (yfinance info dict, SEC facts JSON)
+            # before they accumulate. Every 25 rows we also evict the SEC cache and
+            # commit so SQLite can flush its page buffer.
+            yinfo = None
+            facts = None
+            if processed % 25 == 0:
+                try:
+                    get_sec_facts.cache_clear()
+                except Exception:
+                    pass
+                conn.commit()
+                gc.collect()
 
         conn.execute(
             """

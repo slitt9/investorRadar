@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import time
 from datetime import datetime, timezone
@@ -228,9 +229,22 @@ def refresh_quotes(
                 (t, as_of, close, prev, round(pct, 2), vol),
             )
             n += 1
-        if enrich_valuation and snapshots:
-            for t in sorted(snapshots.keys()):
+        # Free the bulk-download DataFrame contents before the long enrich loop.
+        snapshot_tickers = sorted(snapshots.keys())
+        snapshots.clear()
+        gc.collect()
+
+        if enrich_valuation and snapshot_tickers:
+            for idx, t in enumerate(snapshot_tickers, 1):
                 _enrich_market_cap_and_pe(conn, t, valuation_sleep_s=valuation_sleep_s)
+                if idx % 25 == 0:
+                    # Drop cached SEC facts (10-30 MB each) and reclaim yfinance internals.
+                    try:
+                        get_sec_facts.cache_clear()
+                    except Exception:
+                        pass
+                    conn.commit()
+                    gc.collect()
         conn.execute(
             """
             INSERT INTO app_meta (key, value, updated_at)
