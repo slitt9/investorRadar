@@ -52,6 +52,13 @@ export function MobileFilters({
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="p-0">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onApply();
+              setOpen(false);
+            }}
+          >
           <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-semibold tracking-tight">Filters</div>
@@ -213,6 +220,7 @@ export function MobileFilters({
           <div className="p-4">
             <div className="grid grid-cols-2 gap-2">
               <Button
+                type="button"
                 variant="subtle"
                 onClick={() => {
                   onReset();
@@ -221,17 +229,12 @@ export function MobileFilters({
               >
                 Reset
               </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  onApply();
-                  setOpen(false);
-                }}
-              >
+              <Button type="submit" variant="primary">
                 Run Scan
               </Button>
             </div>
           </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>

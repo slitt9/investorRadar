@@ -57,6 +57,23 @@ def _yahoo_info(ticker: str) -> dict:
         return {}
 
 
+def _safe_float(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_sec_fact(facts, *tags, unit="USD"):
+    for tag in tags:
+        value = extract_latest_sec_fact(facts, tag, unit=unit)
+        if value is not None:
+            return value
+    return None
+
+
 def refresh_fundamentals(
     tickers: list[str],
     *,
@@ -81,7 +98,16 @@ def refresh_fundamentals(
             fifty_two_week_high = ?,
             fifty_two_week_low = ?,
             radar_pulse = ?,
-            company_name = COALESCE(?, company_name)
+            company_name = COALESCE(?, company_name),
+            ps_ratio = ?,
+            enterprise_value = ?,
+            roe = ?,
+            profit_margin = ?,
+            quarterly_revenue_growth = ?,
+            assets = ?,
+            liabilities = ?,
+            equity = ?,
+            beta = ?
         WHERE ticker = ?
     """
 
@@ -106,21 +132,21 @@ def refresh_fundamentals(
                 industry = meta.get("industry") or "N/A"
                 company_name = company_name or meta.get("company_name") or ticker
 
-            yinfo: dict = {}
-            need_yahoo = meta is None or sector_ui == "N/A"
-            if need_yahoo:
-                yinfo = _yahoo_info(ticker)
-                time.sleep(yahoo_delay_s)
-                if not meta:
-                    company_name = (
-                        company_name
-                        or yinfo.get("shortName")
-                        or yinfo.get("longName")
-                        or ticker
-                    )
-                raw_sec = yinfo.get("sector") or ""
-                sector_ui = normalize_sector(raw_sec) if raw_sec else sector_ui
-                industry = yinfo.get("industry") or industry
+            # Always pull Yahoo info: the new detail columns (P/S, EV, ROE,
+            # profit margin, rev growth, beta) only live in info.
+            yinfo = _yahoo_info(ticker)
+            time.sleep(yahoo_delay_s)
+            if not meta:
+                company_name = (
+                    company_name
+                    or yinfo.get("shortName")
+                    or yinfo.get("longName")
+                    or ticker
+                )
+            raw_sec = yinfo.get("sector") or ""
+            if raw_sec:
+                sector_ui = normalize_sector(raw_sec) or sector_ui
+            industry = yinfo.get("industry") or industry
 
             cik = get_cik_for_ticker(ticker)
             facts = get_sec_facts(cik) if cik else None
@@ -129,29 +155,46 @@ def refresh_fundamentals(
             shares = None
             assets = None
             liabilities = None
-            profit_margin = None
+            equity_val = None
+            revenue = None
+            net_income = None
 
             if facts:
-                eps = extract_latest_sec_fact(
-                    facts, "EarningsPerShareDiluted", unit="USD/shares"
+                eps = _first_sec_fact(
+                    facts,
+                    "EarningsPerShareDiluted",
+                    "EarningsPerShareBasic",
+                    unit="USD/shares",
                 )
-                if eps is None:
-                    eps = extract_latest_sec_fact(
-                        facts, "EarningsPerShareBasic", unit="USD/shares"
-                    )
-                shares = extract_latest_sec_fact(
-                    facts, "EntityCommonStockSharesOutstanding", unit="shares"
+                shares = _first_sec_fact(
+                    facts,
+                    "EntityCommonStockSharesOutstanding",
+                    "CommonStockSharesOutstanding",
+                    unit="shares",
                 )
-                if shares is None:
-                    shares = extract_latest_sec_fact(
-                        facts, "CommonStockSharesOutstanding", unit="shares"
-                    )
-                assets = extract_latest_sec_fact(facts, "Assets", unit="USD")
-                liabilities = extract_latest_sec_fact(facts, "Liabilities", unit="USD")
-                ni = extract_latest_sec_fact(facts, "NetIncomeLoss", unit="USD")
-                rev = extract_latest_sec_fact(facts, "Revenues", unit="USD")
-                if ni is not None and rev and rev != 0:
-                    profit_margin = float(ni) / float(rev)
+                assets = _first_sec_fact(facts, "Assets", "AssetsCurrent", unit="USD")
+                liabilities = _first_sec_fact(
+                    facts, "Liabilities", "LiabilitiesCurrent", unit="USD"
+                )
+                equity_val = _first_sec_fact(
+                    facts,
+                    "StockholdersEquity",
+                    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                    unit="USD",
+                )
+                revenue = _first_sec_fact(
+                    facts,
+                    "Revenues",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet",
+                    unit="USD",
+                )
+                net_income = _first_sec_fact(
+                    facts,
+                    "NetIncomeLoss",
+                    "ProfitLoss",
+                    unit="USD",
+                )
 
             pe_ratio = None
             market_cap = None
@@ -160,25 +203,49 @@ def refresh_fundamentals(
             if price and shares and shares > 0:
                 market_cap = round(price * float(shares), 0)
 
-            div_y = yinfo.get("dividendYield")
-            hi = yinfo.get("fiftyTwoWeekHigh")
-            lo = yinfo.get("fiftyTwoWeekLow")
+            div_y = _safe_float(yinfo.get("dividendYield"))
+            hi = _safe_float(yinfo.get("fiftyTwoWeekHigh"))
+            lo = _safe_float(yinfo.get("fiftyTwoWeekLow"))
 
-            if market_cap is None and yinfo.get("marketCap") is not None:
-                market_cap = float(yinfo["marketCap"])
+            if market_cap is None:
+                cap = _safe_float(yinfo.get("marketCap"))
+                if cap is not None:
+                    market_cap = cap
             if pe_ratio is None:
-                ype = yinfo.get("trailingPE") or yinfo.get("forwardPE")
-                if ype is not None:
-                    pe_ratio = round(float(ype), 2)
-            if div_y is None and yinfo.get("dividendYield") is not None:
-                div_y = yinfo.get("dividendYield")
-            if hi is None and yinfo.get("fiftyTwoWeekHigh") is not None:
-                hi = float(yinfo["fiftyTwoWeekHigh"])
-            if lo is None and yinfo.get("fiftyTwoWeekLow") is not None:
-                lo = float(yinfo["fiftyTwoWeekLow"])
+                ype = _safe_float(yinfo.get("trailingPE")) or _safe_float(
+                    yinfo.get("forwardPE")
+                )
+                if ype is not None and ype > 0:
+                    pe_ratio = round(ype, 2)
+
+            ps_ratio = _safe_float(yinfo.get("priceToSalesTrailing12Months"))
+            enterprise_value = _safe_float(yinfo.get("enterpriseValue"))
+            roe = _safe_float(yinfo.get("returnOnEquity"))
+            profit_margin = _safe_float(yinfo.get("profitMargins"))
+            if profit_margin is None and revenue and net_income is not None:
+                try:
+                    if float(revenue) != 0:
+                        profit_margin = float(net_income) / float(revenue)
+                except (TypeError, ValueError):
+                    profit_margin = None
+            beta = _safe_float(yinfo.get("beta"))
+
+            rev_growth_yahoo = _safe_float(yinfo.get("revenueGrowth"))
+            quarterly_revenue_growth = (
+                round(rev_growth_yahoo * 100.0, 2) if rev_growth_yahoo is not None else None
+            )
+
+            equity_calc: float | None = None
+            if assets is not None and liabilities is not None:
+                try:
+                    equity_calc = float(assets) - float(liabilities)
+                except (TypeError, ValueError):
+                    equity_calc = None
+            if equity_calc is None and equity_val is not None:
+                equity_calc = _safe_float(equity_val)
 
             pulse_metrics = {
-                "quarterly_revenue_growth": None,
+                "quarterly_revenue_growth": quarterly_revenue_growth,
                 "profit_margin": profit_margin,
                 "assets": assets,
                 "liabilities": liabilities,
@@ -198,6 +265,15 @@ def refresh_fundamentals(
                     lo,
                     radar,
                     company_name,
+                    ps_ratio,
+                    enterprise_value,
+                    roe,
+                    profit_margin,
+                    quarterly_revenue_growth,
+                    _safe_float(assets),
+                    _safe_float(liabilities),
+                    equity_calc,
+                    beta,
                     ticker,
                 ),
             )

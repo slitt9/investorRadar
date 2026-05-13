@@ -7,7 +7,6 @@ import { ResultsTable } from "@/features/screener/components/results-table";
 import { ScreenerDetailDialog } from "@/features/screener/components/detail-panel";
 import { MobileFilters } from "@/features/screener/components/mobile-filters";
 import {
-  isDefaultScreenerFilters,
   useScreenerFilters,
   useScreenerResults,
 } from "@/features/screener/use-screener";
@@ -37,7 +36,6 @@ export function ScreenerView() {
   }, [requestedTicker]);
 
   const loading = isLoading || isFetching;
-  const isMag7Landing = isDefaultScreenerFilters(applied);
 
   return (
     <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full gap-3 overflow-hidden pr-1 lg:pr-2">
@@ -56,17 +54,17 @@ export function ScreenerView() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-muted">
-                {isMag7Landing ? "MAG7" : "Screener"}
+                S&amp;P 500
               </span>
               <span className="h-[2px] w-10 rounded-full bg-[linear-gradient(90deg,rgb(var(--blue)/0.85),rgb(var(--purple)/0.65),transparent)]" />
             </div>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[26px]">
-              {isMag7Landing ? "Magnificent 7" : "Find opportunities, fast."}
+              S&amp;P 500 screener
             </h1>
             <p className="mt-1 hidden max-w-[60ch] text-sm text-muted sm:block">
-              {isMag7Landing
-                ? "Start with Apple, Microsoft, Nvidia, Amazon, Alphabet, Meta, and Tesla."
-                : "Filter the universe, sort any column, and click a row to open a detailed breakdown."}
+              All 500 constituents are filterable. Slide a control or press Enter
+              in the search box to narrow the list, then open a row for the full
+              breakdown.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

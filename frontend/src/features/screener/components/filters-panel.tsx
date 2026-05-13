@@ -107,7 +107,13 @@ export function FiltersPanel({
               </div>
             </button>
           ) : (
-            <div className="flex h-full flex-col">
+            <form
+              className="flex h-full flex-col"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onApply();
+              }}
+            >
               <div className="flex-1 overflow-auto p-5">
                 <div className="grid gap-6">
                   <div>
@@ -270,19 +276,19 @@ export function FiltersPanel({
 
               <div className="p-4">
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="subtle" onClick={onReset}>
+                  <Button type="button" variant="subtle" onClick={onReset}>
                     Reset
                   </Button>
                   <Button
+                    type="submit"
                     variant="primary"
-                    onClick={onApply}
                     className="shadow-[0_8px_24px_rgb(var(--blue)/0.18)]"
                   >
                     Run Scan
                   </Button>
                 </div>
               </div>
-            </div>
+            </form>
           )}
         </Card>
       </div>

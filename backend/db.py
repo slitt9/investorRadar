@@ -36,6 +36,27 @@ def get_db():
         conn.close()
 
 
+_SNAPSHOT_EXTRA_COLUMNS = (
+    ("ps_ratio", "REAL"),
+    ("enterprise_value", "REAL"),
+    ("roe", "REAL"),
+    ("profit_margin", "REAL"),
+    ("quarterly_revenue_growth", "REAL"),
+    ("assets", "REAL"),
+    ("liabilities", "REAL"),
+    ("equity", "REAL"),
+    ("beta", "REAL"),
+)
+
+
+def _ensure_snapshot_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(stock_snapshot)")}
+    for name, col_type in _SNAPSHOT_EXTRA_COLUMNS:
+        if name in existing:
+            continue
+        conn.execute(f"ALTER TABLE stock_snapshot ADD COLUMN {name} {col_type}")
+
+
 def ensure_schema() -> None:
     with get_db() as conn:
         conn.executescript(
@@ -102,4 +123,5 @@ def ensure_schema() -> None:
                 ON stock_snapshot(as_of);
             """
         )
+        _ensure_snapshot_columns(conn)
 

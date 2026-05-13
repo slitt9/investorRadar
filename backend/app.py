@@ -131,28 +131,7 @@ def screener():
             hi = None
         return lo, hi
 
-    def row_in_range(row, key, lo, hi):
-        v = row.get(key)
-        if v is None:
-            return False
-        try:
-            n = float(v)
-        except (TypeError, ValueError):
-            return False
-        if lo is not None and n < lo:
-            return False
-        if hi is not None and n > hi:
-            return False
-        return True
-
-    def has_required_list_fundamentals(row):
-        return (
-            row.get("market_cap") is not None
-            and row.get("pe_ratio") is not None
-            and str(row.get("sector") or "").strip().upper() not in ("", "N/A")
-        )
-
-    universe = request.args.get("universe", "all").strip().lower()
+    universe = request.args.get("universe", "sp500").strip().lower()
     all_cap = int(os.environ.get("SCREENER_UNIVERSE_MAX", "4000"))
     q = request.args.get("q", "").strip().upper()
     sector = request.args.get("sector", "All").strip()
@@ -211,15 +190,6 @@ def screener():
     # Default sort: pct_change desc (matches UI default).
     rows.sort(key=lambda r: (r.get("pct_change") is None, -(r.get("pct_change") or 0.0)))
     rows = hydrate_screener_rows(rows)
-    rows = [r for r in rows if has_required_list_fundamentals(r)]
-    if market_cap_min is not None or market_cap_max is not None:
-        rows = [
-            r
-            for r in rows
-            if row_in_range(r, "market_cap", market_cap_min, market_cap_max)
-        ]
-    if pe_min is not None or pe_max is not None:
-        rows = [r for r in rows if row_in_range(r, "pe_ratio", pe_min, pe_max)]
     return jsonify(rows)
 
 

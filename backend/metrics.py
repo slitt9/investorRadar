@@ -42,7 +42,8 @@ def _snapshot_metrics(ticker):
                 SELECT
                     market_cap, pe_ratio, sector, industry, dividend_yield,
                     fifty_two_week_high, fifty_two_week_low, company_name,
-                    radar_pulse
+                    radar_pulse, ps_ratio, enterprise_value, roe, profit_margin,
+                    quarterly_revenue_growth, assets, liabilities, equity, beta
                 FROM stock_snapshot
                 WHERE ticker = ?
                 """,
@@ -137,32 +138,39 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
     """Calculates all financial metrics for a given ticker locally."""
     ticker = ticker.upper()
     snapshot = _snapshot_metrics(ticker)
+
+    def _snap(name):
+        value = snapshot.get(name)
+        if value in (None, "", "N/A"):
+            return None
+        return value
+
     metrics = {
         "ticker": ticker,
         "price": None,
         "change": None,
         "pct_change": None,
-        "market_cap": None,
+        "market_cap": _snap("market_cap"),
         "volume": None,
-        "pe_ratio": None,
-        "ps_ratio": None,
-        "enterprise_value": None,
-        "profit_margin": None,
-        "roe": None,
+        "pe_ratio": _snap("pe_ratio"),
+        "ps_ratio": _snap("ps_ratio"),
+        "enterprise_value": _snap("enterprise_value"),
+        "profit_margin": _snap("profit_margin"),
+        "roe": _snap("roe"),
         "payout_ratio": None,
         "eps": None,
         "shares_outstanding": None,
-        "assets": None,
-        "liabilities": None,
-        "equity": None,
+        "assets": _snap("assets"),
+        "liabilities": _snap("liabilities"),
+        "equity": _snap("equity"),
         "sector": snapshot.get("sector") or "N/A",
         "industry": snapshot.get("industry") or "N/A",
-        "beta": None,
-        "dividend_yield": snapshot.get("dividend_yield"),
-        "fifty_two_week_high": snapshot.get("fifty_two_week_high"),
-        "fifty_two_week_low": snapshot.get("fifty_two_week_low"),
+        "beta": _snap("beta"),
+        "dividend_yield": _snap("dividend_yield"),
+        "fifty_two_week_high": _snap("fifty_two_week_high"),
+        "fifty_two_week_low": _snap("fifty_two_week_low"),
         "company_name": snapshot.get("company_name") or "N/A",
-        "quarterly_revenue_growth": None,
+        "quarterly_revenue_growth": _snap("quarterly_revenue_growth"),
         "quarterly_operating_expenses": None,
     }
 
@@ -181,23 +189,27 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
             metrics["pct_change"] = round(pct_change, 2)
             metrics["volume"] = int(hist["Volume"].iloc[-1])
 
-        info = stock.info
-        metrics["sector"] = info.get("sector") or metrics["sector"]
-        metrics["industry"] = info.get("industry") or metrics["industry"]
-        metrics["beta"] = info.get("beta")
-        metrics["dividend_yield"] = info.get("dividendYield") or metrics["dividend_yield"]
-        metrics["payout_ratio"] = info.get("payoutRatio")
-        metrics["ps_ratio"] = info.get("priceToSalesTrailing12Months")
-        metrics["enterprise_value"] = info.get("enterpriseValue")
-        metrics["profit_margin"] = info.get("profitMargins")
-        metrics["roe"] = info.get("returnOnEquity")
-        metrics["fifty_two_week_high"] = info.get("fiftyTwoWeekHigh") or metrics["fifty_two_week_high"]
-        metrics["fifty_two_week_low"] = info.get("fiftyTwoWeekLow") or metrics["fifty_two_week_low"]
-        metrics["company_name"] = (
-            info.get("shortName")
-            or info.get("longName")
-            or metrics["company_name"]
-        )
+        info = stock.info or {}
+
+        def _overlay(key, value):
+            value = _safe_float(value) if isinstance(value, (int, float)) else value
+            if value not in (None, "", "N/A"):
+                metrics[key] = value
+
+        _overlay("sector", info.get("sector"))
+        _overlay("industry", info.get("industry"))
+        _overlay("beta", _safe_float(info.get("beta")))
+        _overlay("dividend_yield", _safe_float(info.get("dividendYield")))
+        _overlay("payout_ratio", _safe_float(info.get("payoutRatio")))
+        _overlay("ps_ratio", _safe_float(info.get("priceToSalesTrailing12Months")))
+        _overlay("enterprise_value", _safe_float(info.get("enterpriseValue")))
+        _overlay("profit_margin", _safe_float(info.get("profitMargins")))
+        _overlay("roe", _safe_float(info.get("returnOnEquity")))
+        _overlay("fifty_two_week_high", _safe_float(info.get("fiftyTwoWeekHigh")))
+        _overlay("fifty_two_week_low", _safe_float(info.get("fiftyTwoWeekLow")))
+        company_name = info.get("shortName") or info.get("longName")
+        if company_name:
+            metrics["company_name"] = company_name
 
         revenue_growth = _safe_float(info.get("revenueGrowth"))
         if revenue_growth is not None:
@@ -205,12 +217,12 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
             metrics["quarterly_revenue_growth"] = round(revenue_growth * 100.0, 2)
 
         # Fast fallback values. SEC-derived values below override these when available.
-        market_cap = info.get("marketCap") or snapshot.get("market_cap")
-        pe = info.get("trailingPE") or info.get("forwardPE") or snapshot.get("pe_ratio")
-        if market_cap is not None:
-            metrics["market_cap"] = float(market_cap)
-        if pe is not None:
-            metrics["pe_ratio"] = float(pe)
+        live_cap = _safe_float(info.get("marketCap"))
+        if live_cap is not None:
+            metrics["market_cap"] = live_cap
+        live_pe = _safe_float(info.get("trailingPE")) or _safe_float(info.get("forwardPE"))
+        if live_pe is not None and live_pe > 0:
+            metrics["pe_ratio"] = live_pe
 
         if include_quarterly:
             # Grab quarterly income statement for growth metrics
@@ -287,14 +299,18 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
                     unit="USD",
                 )
 
-                metrics["eps"] = eps
-                metrics["shares_outstanding"] = shares
-                metrics["assets"] = assets
-                metrics["liabilities"] = liabilities
+                if eps is not None:
+                    metrics["eps"] = eps
+                if shares is not None:
+                    metrics["shares_outstanding"] = shares
+                if assets is not None:
+                    metrics["assets"] = assets
+                if liabilities is not None:
+                    metrics["liabilities"] = liabilities
 
-                if assets and liabilities:
+                if assets is not None and liabilities is not None:
                     metrics["equity"] = assets - liabilities
-                elif equity is not None:
+                elif equity is not None and metrics["equity"] is None:
                     metrics["equity"] = equity
 
                 if metrics["profit_margin"] is None and revenue and net_income is not None:
