@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 from db import ensure_schema, get_db
-from metrics import compute_radar_pulse
+from metrics import build_radar_pulse_inputs, compute_radar_pulse
 from sec_engine import (
     extract_latest_sec_fact,
     get_cik_for_ticker,
@@ -48,14 +48,6 @@ def resolve_tickers(mode: str) -> list[str]:
         cap = int(os.environ.get("REFRESH_ALL_CAP", "2500"))
         return get_searchable_equity_tickers(limit=cap)
     raise ValueError(f"Unknown universe mode: {mode}")
-
-
-def _yahoo_info(ticker: str) -> dict:
-    try:
-        stock = yf.Ticker(ticker)
-        return dict(stock.info or {})
-    except Exception:
-        return {}
 
 
 def _safe_float(value) -> float | None:
@@ -135,7 +127,12 @@ def refresh_fundamentals(
 
             # Always pull Yahoo info: the new detail columns (P/S, EV, ROE,
             # profit margin, rev growth, beta) only live in info.
-            yinfo = _yahoo_info(ticker)
+            try:
+                yt = yf.Ticker(ticker)
+                yinfo = dict(yt.info or {})
+            except Exception:
+                yt = None
+                yinfo = {}
             time.sleep(yahoo_delay_s)
             if not meta:
                 company_name = (
@@ -245,14 +242,22 @@ def refresh_fundamentals(
             if equity_calc is None and equity_val is not None:
                 equity_calc = _safe_float(equity_val)
 
-            pulse_metrics = {
-                "quarterly_revenue_growth": quarterly_revenue_growth,
-                "profit_margin": profit_margin,
-                "assets": assets,
-                "liabilities": liabilities,
+            radar_metrics = {
                 "sector": sector_ui,
+                "profit_margin": profit_margin,
+                "quarterly_revenue_growth": quarterly_revenue_growth,
+                "pe_ratio": pe_ratio,
             }
-            radar = compute_radar_pulse(pulse_metrics)
+            pulse_vec = build_radar_pulse_inputs(
+                ticker,
+                radar_metrics,
+                stock=yt,
+                info=yinfo,
+                facts=facts,
+                include_momentum=False,
+                revenue_sec=_safe_float(revenue) if revenue is not None else None,
+            )
+            radar = compute_radar_pulse(pulse_vec)
 
             conn.execute(
                 update_sql,

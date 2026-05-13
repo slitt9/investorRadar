@@ -4,6 +4,8 @@ Combines live price data from yfinance with fundamental data
 from SEC EDGAR to calculate metrics without any paid API keys.
 """
 
+import math
+
 import yfinance as yf
 from sec_engine import get_cik_for_ticker, get_sec_facts, extract_latest_sec_fact
 from cache import cached
@@ -54,7 +56,8 @@ def _snapshot_metrics(ticker):
         return {}
 
 
-def _persist_radar_pulse_if_missing(ticker, radar_pulse):
+def _persist_radar_pulse(ticker, radar_pulse):
+    """Always persist the latest computed pulse (single source of truth on refresh)."""
     if radar_pulse is None:
         return
     try:
@@ -62,7 +65,7 @@ def _persist_radar_pulse_if_missing(ticker, radar_pulse):
             conn.execute(
                 """
                 UPDATE stock_snapshot
-                SET radar_pulse = COALESCE(radar_pulse, ?)
+                SET radar_pulse = ?
                 WHERE ticker = ?
                 """,
                 (int(radar_pulse), ticker.upper()),
@@ -71,66 +74,323 @@ def _persist_radar_pulse_if_missing(ticker, radar_pulse):
         pass
 
 
-def compute_radar_pulse(metrics):
-    """Compute Radar Stock Pulse (0-100) from available metrics.
+def _score_forward_revenue_growth(growth_pct: float | None) -> float:
+    """Map forward / trailing revenue growth (percent points) to 0..100 (G)."""
+    if growth_pct is None or math.isnan(growth_pct):
+        return 50.0
+    if growth_pct <= -10:
+        return 0.0
+    if growth_pct <= 0:
+        return (growth_pct + 10) * 4.0
+    if growth_pct <= 20:
+        return 40.0 + (growth_pct / 20.0) * 40.0
+    return 80.0 + _clamp((growth_pct - 20) / 30.0 * 20.0, 0.0, 20.0)
 
-    Formula:
-      Pulse = 0.30*Growth + 0.25*Profitability + 0.25*DebtHealth + 0.20*IndustryEdge
-    """
 
-    # Growth score: quarterly revenue growth (%) scaled.
-    growth_pct = metrics.get("quarterly_revenue_growth")
-    if growth_pct is None:
-        growth = 50.0
-    else:
-        # -10% -> 0, 0% -> 40, 20% -> 80, 50%+ -> 100
-        if growth_pct <= -10:
-            growth = 0.0
-        elif growth_pct <= 0:
-            growth = (growth_pct + 10) * 4.0  # 0..40
-        elif growth_pct <= 20:
-            growth = 40.0 + (growth_pct / 20.0) * 40.0  # 40..80
-        else:
-            growth = 80.0 + _clamp((growth_pct - 20) / 30.0 * 20.0, 0.0, 20.0)  # 80..100
+def _score_fcf_margin(fcf_margin: float | None) -> float:
+    """FCF / revenue as a fraction (P). ~18% FCF margin maps to ~100."""
+    if fcf_margin is None or math.isnan(fcf_margin):
+        return 50.0
+    if fcf_margin <= 0:
+        return 0.0
+    return _clamp((fcf_margin / 0.18) * 100.0, 0.0, 100.0)
 
-    # Profitability score: profit margin (0..0.30) mapped to 0..100, negatives -> 0.
-    pm = metrics.get("profit_margin")
-    if pm is None:
-        profitability = 50.0
-    else:
-        profitability = _clamp((pm / 0.30) * 100.0, 0.0, 100.0)
 
-    # Debt health score: lower liabilities/assets is better.
-    assets = metrics.get("assets")
-    liabilities = metrics.get("liabilities")
-    if assets is None or liabilities is None or assets == 0:
-        debt_health = 50.0
-    else:
-        ratio = liabilities / assets
-        # ratio <= 0.30 -> 100, ratio >= 0.85 -> 0 (linear)
-        if ratio <= 0.30:
-            debt_health = 100.0
-        elif ratio >= 0.85:
-            debt_health = 0.0
-        else:
-            debt_health = _clamp((0.85 - ratio) / (0.85 - 0.30) * 100.0, 0.0, 100.0)
+def _score_interest_coverage(coverage: float | None) -> float:
+    """Interest coverage = EBIT-like / interest (D)."""
+    if coverage is None or math.isnan(coverage):
+        return 50.0
+    if coverage <= 0:
+        return 0.0
+    if coverage >= 15:
+        return 100.0
+    return _clamp(coverage / 15.0 * 100.0, 0.0, 100.0)
 
-    # Industry edge score: sector preference ordering.
-    sector = (metrics.get("sector") or "").strip()
-    ranking = ["Energy", "Industrials", "Technology", "Financials", "Healthcare", "Consumer"]
-    if sector in ranking:
-        idx = ranking.index(sector)
-        industry_edge = 100.0 - idx * 10.0  # 100,90,...
-    else:
-        industry_edge = 50.0
 
-    pulse = (
-        0.30 * _clamp(growth)
-        + 0.25 * _clamp(profitability)
-        + 0.25 * _clamp(debt_health)
-        + 0.20 * _clamp(industry_edge)
+def _score_inverse_peg(peg: float | None) -> float:
+    """Lower PEG -> higher score (V). Neutral when unknown."""
+    if peg is None or math.isnan(peg) or peg <= 0:
+        return 50.0
+    return _clamp((2.5 - min(peg, 2.5)) / 2.5 * 100.0, 0.0, 100.0)
+
+
+def _rsi_14(closes: list[float]) -> float | None:
+    if len(closes) < 15:
+        return None
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    window = deltas[-14:]
+    gains = [max(d, 0.0) for d in window]
+    losses = [max(-d, 0.0) for d in window]
+    ag = sum(gains) / 14.0
+    al = sum(losses) / 14.0
+    if al == 0:
+        return 100.0 if ag > 0 else 50.0
+    rs = ag / al
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _trend_3m_score(closes: list[float]) -> float | None:
+    if len(closes) < 64:
+        return None
+    cur, old = closes[-1], closes[-64]
+    if old <= 0:
+        return None
+    pct = (cur - old) / old * 100.0
+    return _clamp((pct + 15.0) / 30.0 * 100.0, 0.0, 100.0)
+
+
+def _forward_revenue_growth_pct(stock, info: dict, fallback_pct: float | None) -> float | None:
+    """Prefer analyst forward revenue (+1y) when available; else Yahoo growth proxies."""
+    if stock is not None:
+        try:
+            ge = getattr(stock, "growth_estimates", None)
+            if ge is not None and not getattr(ge, "empty", True):
+                if hasattr(ge, "index") and "Revenue" in ge.index:
+                    row = ge.loc["Revenue"]
+                    best = None
+                    for col in row.index:
+                        cs = str(col).upper()
+                        if any(x in cs for x in ("+1", "1Y", "/1")):
+                            v = _safe_float(row[col])
+                            if v is not None and not math.isnan(v):
+                                best = v if best is None else max(best, v)
+                    if best is not None:
+                        if abs(best) < 1.0:
+                            best *= 100.0
+                        return float(best)
+        except Exception:
+            pass
+    eg = _safe_float(info.get("earningsGrowth"))
+    if eg is not None:
+        return eg * 100.0
+    rg = _safe_float(info.get("revenueGrowth"))
+    if rg is not None:
+        return rg * 100.0
+    return fallback_pct
+
+
+def _fcf_margin(info: dict, facts, revenue_sec: float | None) -> float | None:
+    fcf = _safe_float(info.get("freeCashflow"))
+    rev = _safe_float(info.get("totalRevenue"))
+    if fcf is not None and rev and rev != 0:
+        return fcf / rev
+    if not facts:
+        return None
+    ocf = _first_sec_fact(
+        facts,
+        "NetCashProvidedByUsedInOperatingActivities",
+        unit="USD",
     )
-    return int(round(_clamp(pulse, 0.0, 100.0)))
+    capex = _first_sec_fact(
+        facts,
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+        "CapitalExpenditures",
+        unit="USD",
+    )
+    rev = revenue_sec
+    if rev is None or float(rev) == 0:
+        rev = _first_sec_fact(
+            facts,
+            "Revenues",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "SalesRevenueNet",
+            unit="USD",
+        )
+    if ocf is None or rev is None or float(rev) == 0:
+        return None
+    try:
+        capex_amt = float(capex) if capex is not None else 0.0
+        fcf_est = float(ocf) - abs(capex_amt)
+        return fcf_est / float(rev)
+    except (TypeError, ValueError):
+        return None
+
+
+def _interest_coverage_raw(facts) -> float | None:
+    if not facts:
+        return None
+    op = _first_sec_fact(facts, "OperatingIncomeLoss", unit="USD")
+    interest = _first_sec_fact(
+        facts,
+        "InterestExpense",
+        "InterestAndDebtExpense",
+        unit="USD",
+    )
+    if op is None:
+        return None
+    op_f = float(op)
+    if interest is None or abs(float(interest)) < 1e-9:
+        return 100.0 if op_f > 0 else 0.0
+    return op_f / abs(float(interest))
+
+
+def _peg_ratio(info: dict, pe: float | None) -> float | None:
+    direct = _safe_float(info.get("pegRatio"))
+    if direct is not None and direct > 0:
+        return direct
+    if pe is None or pe <= 0:
+        return None
+    eg = _safe_float(info.get("earningsGrowth"))
+    if eg is None or eg <= 0:
+        return None
+    g_pct = eg * 100.0
+    if g_pct <= 0.01:
+        return None
+    return pe / g_pct
+
+
+def _sector_profit_margin_percentile(
+    conn, ticker: str, sector: str, current_pm: float | None
+) -> float:
+    if current_pm is None or not sector or str(sector).strip().upper() in ("", "N/A"):
+        return 50.0
+    key = str(sector).strip()
+    rows = conn.execute(
+        """
+        SELECT profit_margin FROM stock_snapshot
+        WHERE UPPER(ticker) != UPPER(?)
+          AND TRIM(COALESCE(NULLIF(NULLIF(sector, 'N/A'), ''), '')) = ?
+          AND profit_margin IS NOT NULL
+        """,
+        (ticker, key),
+    ).fetchall()
+    vals = []
+    for (v,) in rows:
+        try:
+            fv = float(v)
+            if not math.isnan(fv):
+                vals.append(fv)
+        except (TypeError, ValueError):
+            continue
+    if len(vals) < 5:
+        return 50.0
+    below = sum(1 for x in vals if x < current_pm)
+    equal = sum(1 for x in vals if x == current_pm)
+    return 100.0 * (below + 0.5 * equal) / len(vals)
+
+
+def _momentum_score_from_history(stock) -> float | None:
+    if stock is None:
+        return None
+    try:
+        hist = stock.history(period="8mo", interval="1d")
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None
+        closes = [float(x) for x in hist["Close"].tolist() if x == x]
+        if len(closes) < 20:
+            return None
+        rsi = _rsi_14(closes)
+        tr = _trend_3m_score(closes)
+        if rsi is not None and tr is not None:
+            return _clamp(0.45 * rsi + 0.55 * tr, 0.0, 100.0)
+        if rsi is not None:
+            return _clamp(rsi, 0.0, 100.0)
+        if tr is not None:
+            return _clamp(tr, 0.0, 100.0)
+    except Exception:
+        return None
+    return None
+
+
+def build_radar_pulse_inputs(
+    ticker: str,
+    metrics: dict,
+    *,
+    stock,
+    info: dict,
+    facts,
+    include_momentum: bool = True,
+    revenue_sec: float | None = None,
+) -> dict:
+    """Assemble raw inputs for :func:`compute_radar_pulse` (G,P,D,I,V,M)."""
+    ticker = ticker.upper()
+    info = info or {}
+    sector = (metrics.get("sector") or "").strip() or "N/A"
+    pe = _safe_float(metrics.get("pe_ratio"))
+    pm = _safe_float(metrics.get("profit_margin"))
+    qrev = _safe_float(metrics.get("quarterly_revenue_growth"))
+
+    fwd_g = _forward_revenue_growth_pct(stock, info, qrev)
+    fcf_m = _fcf_margin(info, facts, revenue_sec)
+    cov = _interest_coverage_raw(facts)
+    peg = _peg_ratio(info, pe)
+
+    mom = None
+    if include_momentum:
+        mom = _momentum_score_from_history(stock)
+
+    sector_pct = 50.0
+    try:
+        with get_db() as conn:
+            sector_pct = _sector_profit_margin_percentile(conn, ticker, sector, pm)
+    except Exception:
+        sector_pct = 50.0
+
+    return {
+        "forward_revenue_growth_pct": fwd_g,
+        "fcf_margin": fcf_m,
+        "interest_coverage": cov,
+        "sector_percentile": sector_pct,
+        "peg": peg,
+        "momentum_score": mom,
+    }
+
+
+def compute_radar_pulse(pulse: dict) -> int:
+    """Radar Stock Pulse (0-100), six-factor model.
+
+    Pulse = round(clamp(0.25*G + 0.20*P + 0.15*D + 0.15*I + 0.15*V + 0.10*M))
+
+    G — Forward / analyst-skewed revenue growth (%), scaled 0..100
+    P — FCF margin (free cash flow / revenue), scaled 0..100
+    D — Interest coverage (EBIT-like / interest), scaled 0..100
+    I — Profit-margin percentile within the same sector (0..100)
+    V — Inverse PEG (Yahoo pegRatio or P/E ÷ earnings growth %)
+    M — RSI + 3-month price trend blend (0..100); optional (neutral 50 when omitted)
+    """
+    g_raw = pulse.get("forward_revenue_growth_pct")
+    try:
+        g_pct = float(g_raw) if g_raw is not None else None
+        if g_pct is not None and math.isnan(g_pct):
+            g_pct = None
+    except (TypeError, ValueError):
+        g_pct = None
+    G = _score_forward_revenue_growth(g_pct)
+    P = _score_fcf_margin(_safe_float(pulse.get("fcf_margin")))
+    cov_raw = pulse.get("interest_coverage")
+    try:
+        cov = float(cov_raw) if cov_raw is not None else None
+        if cov is not None and math.isnan(cov):
+            cov = None
+    except (TypeError, ValueError):
+        cov = None
+    D = _score_interest_coverage(cov)
+    I_raw = pulse.get("sector_percentile")
+    try:
+        I = float(I_raw) if I_raw is not None else 50.0
+        if math.isnan(I):
+            I = 50.0
+    except (TypeError, ValueError):
+        I = 50.0
+    V = _score_inverse_peg(_safe_float(pulse.get("peg")))
+    M_raw = pulse.get("momentum_score")
+    try:
+        M = float(M_raw) if M_raw is not None else 50.0
+        if math.isnan(M):
+            M = 50.0
+    except (TypeError, ValueError):
+        M = 50.0
+
+    pulse_val = (
+        0.25 * _clamp(G)
+        + 0.20 * _clamp(P)
+        + 0.15 * _clamp(D)
+        + 0.15 * _clamp(I)
+        + 0.15 * _clamp(V)
+        + 0.10 * _clamp(M)
+    )
+    return int(round(_clamp(pulse_val, 0.0, 100.0)))
 
 
 @cached(ttl=120)
@@ -175,6 +435,8 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
     }
 
     # --- Phase 1: Live price from Yahoo Finance ---
+    stock = None
+    info: dict = {}
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="5d" if include_quarterly or include_sec else "2d")
@@ -189,7 +451,7 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
             metrics["pct_change"] = round(pct_change, 2)
             metrics["volume"] = int(hist["Volume"].iloc[-1])
 
-        info = stock.info or {}
+        info = dict(stock.info or {})
 
         def _overlay(key, value):
             value = _safe_float(value) if isinstance(value, (int, float)) else value
@@ -246,11 +508,14 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
         pass
 
     # --- Phase 2: SEC Fundamentals ---
+    sec_facts = None
+    rev_for_pulse = None
     if include_sec:
         cik = get_cik_for_ticker(ticker)
         if cik:
             facts = get_sec_facts(cik)
             if facts:
+                sec_facts = facts
                 eps = extract_latest_sec_fact(
                     facts, "EarningsPerShareDiluted", unit="USD/shares"
                 )
@@ -286,6 +551,7 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
                     "SalesRevenueNet",
                     unit="USD",
                 )
+                rev_for_pulse = revenue
                 net_income = _first_sec_fact(
                     facts,
                     "NetIncomeLoss",
@@ -327,11 +593,27 @@ def calculate_metrics(ticker, *, include_sec=True, include_quarterly=True):
                     if shares and shares > 0:
                         metrics["market_cap"] = round(metrics["price"] * shares, 0)
 
-    if snapshot.get("radar_pulse") is not None:
-        metrics["radar_pulse"] = int(snapshot["radar_pulse"])
-    else:
-        metrics["radar_pulse"] = compute_radar_pulse(metrics)
-        _persist_radar_pulse_if_missing(ticker, metrics["radar_pulse"])
+    pl_stock = stock
+    pl_info = info
+    if pl_stock is None:
+        try:
+            pl_stock = yf.Ticker(ticker)
+            pl_info = dict(pl_stock.info or {})
+        except Exception:
+            pl_stock = None
+            pl_info = {}
+
+    pulse_inputs = build_radar_pulse_inputs(
+        ticker,
+        metrics,
+        stock=pl_stock,
+        info=pl_info,
+        facts=sec_facts,
+        include_momentum=True,
+        revenue_sec=_safe_float(rev_for_pulse) if rev_for_pulse is not None else None,
+    )
+    metrics["radar_pulse"] = compute_radar_pulse(pulse_inputs)
+    _persist_radar_pulse(ticker, metrics["radar_pulse"])
     return metrics
 
 
