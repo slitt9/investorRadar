@@ -145,8 +145,8 @@ def _enrich_market_cap_and_pe(
         UPDATE stock_snapshot SET
             market_cap = COALESCE(?, market_cap),
             pe_ratio   = COALESCE(?, pe_ratio),
-            sector     = COALESCE(NULLIF(sector, 'N/A'), sector, ?),
-            industry   = COALESCE(NULLIF(industry, 'N/A'), industry, ?)
+            sector     = COALESCE(NULLIF(NULLIF(sector, 'N/A'), ''), ?, sector),
+            industry   = COALESCE(NULLIF(NULLIF(industry, 'N/A'), ''), ?, industry)
         WHERE ticker = ?
         """,
         (mcap, pe, sector_ui, industry_val, ticker),

@@ -219,8 +219,8 @@ def _persist_row(
             UPDATE stock_snapshot SET
                 market_cap = COALESCE(market_cap, ?),
                 pe_ratio   = COALESCE(pe_ratio, ?),
-                sector     = COALESCE(NULLIF(sector, 'N/A'), sector, ?),
-                industry   = COALESCE(NULLIF(industry, 'N/A'), industry, ?)
+                sector     = COALESCE(NULLIF(NULLIF(sector, 'N/A'), ''), ?, sector),
+                industry   = COALESCE(NULLIF(NULLIF(industry, 'N/A'), ''), ?, industry)
             WHERE ticker = ?
             """,
             (market_cap, pe_ratio, sector, industry, ticker),

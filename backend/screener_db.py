@@ -92,7 +92,7 @@ def get_screener_results(
 
     args: list = []
 
-    sector_expr = "COALESCE(NULLIF(s.sector, 'N/A'), s.sector, sp.sector)"
+    sector_expr = "COALESCE(NULLIF(NULLIF(s.sector, 'N/A'), ''), sp.sector)"
 
     if sector and sector != "All":
         if sector == "Other":
@@ -135,8 +135,8 @@ def get_screener_results(
             s.volume AS volume,
             s.market_cap AS market_cap,
             s.pe_ratio AS pe_ratio,
-            COALESCE(NULLIF(s.sector, 'N/A'), s.sector, sp.sector) AS sector,
-            COALESCE(NULLIF(s.industry, 'N/A'), s.industry, sp.industry) AS industry,
+            COALESCE(NULLIF(NULLIF(s.sector, 'N/A'), ''), sp.sector) AS sector,
+            COALESCE(NULLIF(NULLIF(s.industry, 'N/A'), ''), sp.industry) AS industry,
             s.dividend_yield AS dividend_yield,
             s.fifty_two_week_high AS fifty_two_week_high,
             s.fifty_two_week_low AS fifty_two_week_low,
